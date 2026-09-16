@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+build/
+dist/
+
+# marimo
+__marimo__/
+.marimo.toml
+
+# tooling
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# simulation output
+results/
+*.csv
+!tests/fixtures/*.csv

@@ -1,0 +1,38 @@
+[project]
+name = "gcm"
+version = "0.1.0"
+description = "Garbage Can Model of Organizational Choice: Python re-implementations of the original FORTRAN simulation (Cohen, March & Olsen 1972) and the NetLogo agent-based model (Fioretti & Lomi), with modular extension points for later LLM-agent substitution."
+readme = "README.md"
+authors = [
+    { name = "Leon Adel" }
+]
+requires-python = ">=3.11"
+license = { text = "GPL-3.0-or-later" }
+dependencies = [
+    "numpy>=1.26",
+    "pandas>=2.1",
+    "marimo>=0.9",
+    "altair>=5.0",
+    "matplotlib>=3.8",
+]
+
+[project.scripts]
+gcm-fortran = "gcm.fortran.cli:main"
+gcm-netlogo = "gcm.netlogo.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.5",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[build-system]
+requires = ["uv_build>=0.8.17,<0.9.0"]
+build-backend = "uv_build"
