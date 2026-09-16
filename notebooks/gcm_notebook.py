@@ -1,7 +1,7 @@
 import marimo
 
 __generated_with = "0.24.2"
-app = marimo.App(width="medium", app_title="Garbage Can Model")
+app = marimo.App(width="full", app_title="Garbage Can Model")
 
 
 @app.cell
@@ -83,6 +83,7 @@ def _(mo):
     allocation) will later be plugged in without touching the simulation cores. Section 3
     documents them.
     """)
+    return
 
 
 @app.cell
@@ -105,6 +106,7 @@ def _(mo):
     net energy **load** (light / moderate / heavy), **access structure** (problems to choices),
     **decision structure** (decision makers to choices) and **energy distribution**.
     """)
+    return
 
 
 @app.cell
@@ -225,6 +227,7 @@ def _(f_history, f_stats, mo, pd):
         widths=[1, 1],
         wrap=True,
     )
+    return
 
 
 @app.cell
@@ -236,6 +239,7 @@ def _(f_history, format_histories, mo):
             )
         }
     )
+    return
 
 
 @app.cell
@@ -263,6 +267,7 @@ def _(alt, f_history, mo, pd):
         .resolve_scale(y="independent")
     )
     mo.vstack([mo.md("**Energy required vs. cumulative effective energy expended per choice.** A choice is made in the first period in which the expended energy reaches the requirement; ghost energy (energy left on a choice after its problems have moved on) is what makes decisions by flight and oversight cheap."), _chart])
+    return
 
 
 @app.cell
@@ -280,6 +285,7 @@ def _(mo):
     published way and others the wrong way, which is the expected signature of a machine
     dependence that cannot be recovered from the listing alone.
     """)
+    return
 
 
 @app.cell
@@ -322,6 +328,7 @@ def _(f_all, fx, mo):
             _t5c,
         ]
     )
+    return
 
 
 @app.cell
@@ -340,6 +347,7 @@ def _(alt, f_all, mo):
         .properties(width=130, height=180)
     )
     mo.vstack([mo.md("**Decision styles across all 324 situations.** Property 1 of the paper: resolution is not the most common style except where flight is restricted (specialized access) or under light load."), _chart])
+    return
 
 
 @app.cell
@@ -361,6 +369,7 @@ def _(mo):
     hierarchy* only able participants (efficient solutions, difficult problems) may meet
     important opportunities, in an *incompetent hierarchy* the reverse holds.
     """)
+    return
 
 
 @app.cell
@@ -491,6 +500,7 @@ def _(abm, abm_params, abm_results, hierarchy_levels, mo, pd):
             mo.ui.table(pd.DataFrame(_rows, columns=["monitor", "value"]), selection=None, page_size=14),
         ]
     )
+    return
 
 
 @app.cell
@@ -536,6 +546,7 @@ def _(abm, alt, mo, pd):
             (_bg + _fg).resolve_scale(color="independent", shape="independent").properties(width=520, height=520).configure_view(stroke="#888"),
         ]
     )
+    return
 
 
 @app.cell
@@ -563,6 +574,7 @@ def _(abm, alt, mo, pd):
         else mo.md("")
     )
     mo.vstack([mo.hstack([_cum, _share], wrap=True), _by_imp, mo.md(f"**Event log** ({len(_ev)} decisions and flights; the information `show-details?` prints in NetLogo)."), mo.ui.table(_ev, page_size=8, selection=None) if len(_ev) else mo.md("no events")])
+    return
 
 
 @app.cell
@@ -580,6 +592,7 @@ def _(mo):
     organized anarchies out-resolve hierarchies, and that incompetent hierarchies are at
     least as efficient as competent ones.
     """)
+    return
 
 
 @app.cell
@@ -609,6 +622,7 @@ def _(alt, bs_reps, bs_ticks, bs_workers, mo, nx, run_bs):
         .properties(width=560, height=260)
     )
     mo.vstack([_chart, _summary])
+    return
 
 
 @app.cell
@@ -645,6 +659,7 @@ def _(mo):
     in which every participant is admitted to opportunities of its own hierarchy level only
     (the "specialized" arrangement of the 1972 paper, transplanted into the NetLogo model).
     """)
+    return
 
 
 @app.cell
@@ -690,6 +705,7 @@ def _(GarbageCanABM, NetLogoComponents, NetLogoParameters, Structure, mo):
         component answering "may this participant step next to that opportunity?" did.
         """
     )
+    return
 
 
 @app.cell
@@ -717,6 +733,7 @@ def _(mo):
       hand-built patch situations for oversight, block, resolution and postponement, the
       flying-pair rate, and the four qualitative properties of the NetLogo model.
     """)
+    return
 
 
 if __name__ == "__main__":
