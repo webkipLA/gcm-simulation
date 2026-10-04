@@ -19,3 +19,9 @@ __marimo__/
 results/
 *.csv
 !tests/fixtures/*.csv
+
+# contextual structures: secrets, raw LLM responses and the request cache stay local;
+# exported structures under data/structures/ are tracked
+.env
+data/llm_cache/
+data/llm_runs/

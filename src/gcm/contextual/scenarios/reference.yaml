@@ -1,0 +1,232 @@
+# Reference scenarios: plain-language descriptions of the three pure decision structures of
+# Cohen, March & Olsen (1972, pp. 6-7). Their matrices are known, so these scenarios validate
+# the pipeline: an LLM that reads the rule correctly must return exactly the expected matrix.
+#
+# The words that name the structures in the paper never appear in any text below. The fields
+# `expected` and `expected_matrix` are used for validation and by the Mock connector only; they
+# are never rendered into a prompt.
+#
+# The grades are part of the content of these scenarios, because the rules refer to them. They
+# are therefore visible to the model even when the importance switch is off.
+id: reference
+kind: reference
+row_entity: participant
+languages: [en, de]
+terms:
+  participant:
+    plural: {en: Members, de: Mitglieder}
+  opportunity:
+    plural: {en: Committees, de: Ausschüsse}
+organization:
+  en: >-
+    The organization is an association with ten members and ten standing committees. Every
+    member holds exactly one seniority grade from 1 to 10, and every committee has exactly one
+    grade from 1 to 10. Grade 1 is the most senior grade.
+  de: >-
+    Die Organisation ist ein Verein mit zehn Mitgliedern und zehn ständigen Ausschüssen. Jedes
+    Mitglied hat genau eine Rangstufe von 1 bis 10, und jeder Ausschuss hat genau eine
+    Rangstufe von 1 bis 10. Rangstufe 1 ist die höchste Rangstufe.
+
+# The order of both lists is the importance order (rank 1 first). A description is a predicate
+# without subject and without final period: label and description together form one sentence.
+participants:
+  - id: m01
+    rank: 1
+    label: {en: the member of grade 1, de: das Mitglied der Rangstufe 1}
+    description:
+      en: holds seniority grade 1
+      de: hat die Rangstufe 1
+  - id: m02
+    rank: 2
+    label: {en: the member of grade 2, de: das Mitglied der Rangstufe 2}
+    description:
+      en: holds seniority grade 2
+      de: hat die Rangstufe 2
+  - id: m03
+    rank: 3
+    label: {en: the member of grade 3, de: das Mitglied der Rangstufe 3}
+    description:
+      en: holds seniority grade 3
+      de: hat die Rangstufe 3
+  - id: m04
+    rank: 4
+    label: {en: the member of grade 4, de: das Mitglied der Rangstufe 4}
+    description:
+      en: holds seniority grade 4
+      de: hat die Rangstufe 4
+  - id: m05
+    rank: 5
+    label: {en: the member of grade 5, de: das Mitglied der Rangstufe 5}
+    description:
+      en: holds seniority grade 5
+      de: hat die Rangstufe 5
+  - id: m06
+    rank: 6
+    label: {en: the member of grade 6, de: das Mitglied der Rangstufe 6}
+    description:
+      en: holds seniority grade 6
+      de: hat die Rangstufe 6
+  - id: m07
+    rank: 7
+    label: {en: the member of grade 7, de: das Mitglied der Rangstufe 7}
+    description:
+      en: holds seniority grade 7
+      de: hat die Rangstufe 7
+  - id: m08
+    rank: 8
+    label: {en: the member of grade 8, de: das Mitglied der Rangstufe 8}
+    description:
+      en: holds seniority grade 8
+      de: hat die Rangstufe 8
+  - id: m09
+    rank: 9
+    label: {en: the member of grade 9, de: das Mitglied der Rangstufe 9}
+    description:
+      en: holds seniority grade 9
+      de: hat die Rangstufe 9
+  - id: m10
+    rank: 10
+    label: {en: the member of grade 10, de: das Mitglied der Rangstufe 10}
+    description:
+      en: holds seniority grade 10
+      de: hat die Rangstufe 10
+opportunities:
+  - id: c01
+    rank: 1
+    label: {en: the committee of grade 1, de: der Ausschuss der Rangstufe 1}
+    description:
+      en: is a standing committee of grade 1
+      de: ist ein ständiger Ausschuss der Rangstufe 1
+  - id: c02
+    rank: 2
+    label: {en: the committee of grade 2, de: der Ausschuss der Rangstufe 2}
+    description:
+      en: is a standing committee of grade 2
+      de: ist ein ständiger Ausschuss der Rangstufe 2
+  - id: c03
+    rank: 3
+    label: {en: the committee of grade 3, de: der Ausschuss der Rangstufe 3}
+    description:
+      en: is a standing committee of grade 3
+      de: ist ein ständiger Ausschuss der Rangstufe 3
+  - id: c04
+    rank: 4
+    label: {en: the committee of grade 4, de: der Ausschuss der Rangstufe 4}
+    description:
+      en: is a standing committee of grade 4
+      de: ist ein ständiger Ausschuss der Rangstufe 4
+  - id: c05
+    rank: 5
+    label: {en: the committee of grade 5, de: der Ausschuss der Rangstufe 5}
+    description:
+      en: is a standing committee of grade 5
+      de: ist ein ständiger Ausschuss der Rangstufe 5
+  - id: c06
+    rank: 6
+    label: {en: the committee of grade 6, de: der Ausschuss der Rangstufe 6}
+    description:
+      en: is a standing committee of grade 6
+      de: ist ein ständiger Ausschuss der Rangstufe 6
+  - id: c07
+    rank: 7
+    label: {en: the committee of grade 7, de: der Ausschuss der Rangstufe 7}
+    description:
+      en: is a standing committee of grade 7
+      de: ist ein ständiger Ausschuss der Rangstufe 7
+  - id: c08
+    rank: 8
+    label: {en: the committee of grade 8, de: der Ausschuss der Rangstufe 8}
+    description:
+      en: is a standing committee of grade 8
+      de: ist ein ständiger Ausschuss der Rangstufe 8
+  - id: c09
+    rank: 9
+    label: {en: the committee of grade 9, de: der Ausschuss der Rangstufe 9}
+    description:
+      en: is a standing committee of grade 9
+      de: ist ein ständiger Ausschuss der Rangstufe 9
+  - id: c10
+    rank: 10
+    label: {en: the committee of grade 10, de: der Ausschuss der Rangstufe 10}
+    description:
+      en: is a standing committee of grade 10
+      de: ist ein ständiger Ausschuss der Rangstufe 10
+variants:
+  - id: unsegmented
+    title:
+      en: "Reference: every member may enter every committee"
+      de: "Referenz: jedes Mitglied darf in jeden Ausschuss"
+    expected: unsegmented
+    # rows = members, columns = committees, as printed for D0 in the paper
+    expected_matrix:
+      - "1111111111"
+      - "1111111111"
+      - "1111111111"
+      - "1111111111"
+      - "1111111111"
+      - "1111111111"
+      - "1111111111"
+      - "1111111111"
+      - "1111111111"
+      - "1111111111"
+    statements:
+      - en: Every member may take part in every committee.
+        de: Jedes Mitglied darf an jedem Ausschuss teilnehmen.
+      - en: The grades play no role for participation in a committee.
+        de: Die Rangstufen spielen für die Teilnahme an einem Ausschuss keine Rolle.
+  - id: hierarchical
+    title:
+      en: "Reference: committees admit members of their own grade or a more senior grade"
+      de: "Referenz: Ausschüsse lassen Mitglieder der eigenen oder einer höheren Rangstufe zu"
+    expected: hierarchical
+    # as printed for D1 in the paper
+    expected_matrix:
+      - "1111111111"
+      - "0111111111"
+      - "0011111111"
+      - "0001111111"
+      - "0000111111"
+      - "0000011111"
+      - "0000001111"
+      - "0000000111"
+      - "0000000011"
+      - "0000000001"
+    statements:
+      - en: >-
+          A member may take part in a committee if the grade number of the committee is equal
+          to or higher than the grade number of the member.
+        de: >-
+          Ein Mitglied darf an einem Ausschuss teilnehmen, wenn die Rangstufennummer des
+          Ausschusses gleich der Rangstufennummer des Mitglieds oder größer als diese ist.
+      - en: >-
+          A member may not take part in a committee whose grade number is lower than the grade
+          number of the member.
+        de: >-
+          Ein Mitglied darf nicht an einem Ausschuss teilnehmen, dessen Rangstufennummer kleiner
+          ist als die Rangstufennummer des Mitglieds.
+  - id: specialized
+    title:
+      en: "Reference: every member belongs to exactly one committee"
+      de: "Referenz: jedes Mitglied gehört zu genau einem Ausschuss"
+    expected: specialized
+    # as printed for D2 in the paper
+    expected_matrix:
+      - "1000000000"
+      - "0100000000"
+      - "0010000000"
+      - "0001000000"
+      - "0000100000"
+      - "0000010000"
+      - "0000001000"
+      - "0000000100"
+      - "0000000010"
+      - "0000000001"
+    statements:
+      - en: >-
+          A member may take part only in the committee that has the same grade number as the
+          member.
+        de: >-
+          Ein Mitglied darf nur an dem Ausschuss teilnehmen, der dieselbe Rangstufennummer hat
+          wie das Mitglied.
+      - en: A member may not take part in any other committee.
+        de: An allen anderen Ausschüssen darf ein Mitglied nicht teilnehmen.
