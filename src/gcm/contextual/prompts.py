@@ -351,7 +351,7 @@ class PromptTemplate:
     @property
     def template_hash(self) -> str:
         """Short hash of the unfilled templates (identifies the query syntax in the logs)."""
-        blob = "\x1f".join((self.system, self.user, self.answer_format)).encode("utf-8")
+        blob = f"{self.system}\x1f{self.user}\x1f{self.answer_format}".encode()
         return hashlib.sha256(blob).hexdigest()[:12]
 
 
