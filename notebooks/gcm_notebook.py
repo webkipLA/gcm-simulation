@@ -1335,7 +1335,7 @@ def _(
 ):
     mo.stop(not cx_n_run.value, mo.md("*Press the button; about 1.4 ms per tick and run, five conditions.*"))
     _s = cx_scenarios[cx_scenario.value]
-    _assignment = RoleAssignment.for_export(cx_export, **(_s.assignment or {}), ability_mapping=cx_n_mapping.value)
+    _assignment = RoleAssignment.for_export(cx_export, **{**(_s.assignment or {}), "ability_mapping": cx_n_mapping.value})
     _base = NetLogoParameters(stop_at=cx_n_ticks.value)
     _mode = "sample" if cx_n_sample.value else "threshold"
     _conditions = [

@@ -4,9 +4,11 @@ Configuration: ``UNI_API_BASE_URL`` (e.g. ``https://host/v1``), ``UNI_API_KEY`` 
 Bearer token) and ``UNI_API_MODEL``. Other deployments can be addressed by passing the values
 directly or by giving another environment prefix.
 
-Structured output: ``response_format`` with a JSON schema (``json_schema``) where the server
-supports it; servers that reject it fall back to ``json_object`` automatically and the fallback
-is recorded in the identity, so answers of the two modes are never mixed in one cache entry.
+Structured output: ``response_format`` with a JSON schema (``json_schema``, the default) where
+the server supports it. A server that rejects it makes every call fail with a message that says
+to configure ``structured="json_object"`` (or ``UNI_API_STRUCTURED=json_object``) instead. There
+is no automatic fallback, because the mode is part of the connector identity and therefore of
+the cache key and the logs; switching it in the middle of a run would mix two kinds of answers.
 """
 
 from __future__ import annotations
@@ -30,7 +32,7 @@ class OpenAICompatibleConnector(BaseConnector):
         limits: ConnectorLimits | None = None,
         *,
         env_prefix: str = "UNI_API",
-        structured: str = "json_schema",  # "json_schema" | "json_object" | "none"
+        structured: str | None = None,  # "json_schema" (default) | "json_object" | "none"
         name: str | None = None,
         extra_headers: dict | None = None,
         transport: httpx.BaseTransport | None = None,
@@ -44,6 +46,7 @@ class OpenAICompatibleConnector(BaseConnector):
             self.name = name
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key if api_key is not None else os.environ.get(f"{env_prefix}_KEY", "")
+        structured = structured or os.environ.get(f"{env_prefix}_STRUCTURED", "json_schema")
         if structured not in ("json_schema", "json_object", "none"):
             raise ValueError("structured must be json_schema, json_object or none")
         self.structured = structured
@@ -91,15 +94,11 @@ class OpenAICompatibleConnector(BaseConnector):
             )
         except ConnectorError as exc:
             if self.structured == "json_schema" and "response_format" in str(exc):
-                self.structured = "json_object"  # remembered for all further calls
-                data = post_json(
-                    self._client,
-                    url,
-                    self._payload(system, user, temperature, seed, schema),
-                    self._headers,
-                )
-            else:
-                raise
+                raise ConnectorError(
+                    f"{exc}; this server rejects json_schema output, configure the connector "
+                    "with structured='json_object' (or UNI_API_STRUCTURED=json_object)"
+                ) from exc
+            raise
         choices = data.get("choices") or []
         if not choices:
             raise ConnectorError(f"no choices in response: {str(data)[:200]}")

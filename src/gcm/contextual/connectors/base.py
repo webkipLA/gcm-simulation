@@ -174,6 +174,9 @@ class BaseConnector:
             except ConnectorError as exc:
                 error = f"{type(exc).__name__}: {exc}"
                 break
+            except Exception as exc:  # noqa: BLE001  a bug in a connector must not abort a run
+                error = f"unexpected {type(exc).__name__}: {exc}"
+                break
             return Completion(
                 text=text,
                 parsed=extract_json(text),

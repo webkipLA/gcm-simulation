@@ -200,6 +200,7 @@ def style_table(results: pd.DataFrame, styles: Sequence[str] = FORTRAN_STYLES) -
 
 def cramers_v(table: np.ndarray) -> float:
     table = np.asarray(table, dtype=float)
+    table = table[table.sum(axis=1) > 0][:, table.sum(axis=0) > 0]  # empty marginals carry nothing
     n = table.sum()
     if n == 0 or min(table.shape) < 2:
         return float("nan")

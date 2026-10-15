@@ -102,21 +102,25 @@ def test_openai_compatible_uses_bearer_token_and_json_schema():
     assert c.identity()["connector"] == "university" and c.identity()["structured"] == "json_schema"
 
 
-def test_openai_compatible_falls_back_to_json_object_when_schema_is_rejected():
+def test_openai_compatible_reports_a_rejected_schema_instead_of_switching_modes(monkeypatch):
     fake = Fake(
         (400, {"error": {"message": "response_format json_schema is not supported"}}),
-        (200, {"choices": [{"message": {"content": '{"eligible": true}'}}]}),
         (200, {"choices": [{"message": {"content": '{"eligible": true}'}}]}),
     )
     c = OpenAICompatibleConnector(
         model="m", base_url="https://h/v1", api_key="", transport=fake.transport()
     )
-    assert c.complete("s", "u", schema=SCHEMA).parsed == {"eligible": True}
-    assert fake.sent(1)["response_format"] == {"type": "json_object"}
-    c.complete("s", "u", schema=SCHEMA)
-    assert fake.sent(2)["response_format"] == {"type": "json_object"}  # remembered
-    assert c.identity()["structured"] == "json_object"
+    out = c.complete("s", "u", schema=SCHEMA)
+    assert out.error and "structured='json_object'" in out.error and out.attempts == 1
+    assert c.identity()["structured"] == "json_schema"  # the identity never changes mid-run
     assert "authorization" not in fake.requests[0].headers  # no key, no header
+    monkeypatch.setenv("UNI_API_STRUCTURED", "json_object")
+    c2 = OpenAICompatibleConnector(
+        model="m", base_url="https://h/v1", api_key="", transport=fake.transport()
+    )
+    assert c2.complete("s", "u", schema=SCHEMA).parsed == {"eligible": True}
+    assert fake.sent(1)["response_format"] == {"type": "json_object"}
+    assert c2.identity()["structured"] == "json_object"
 
 
 def test_transient_http_failures_are_retried_and_permanent_ones_are_not():

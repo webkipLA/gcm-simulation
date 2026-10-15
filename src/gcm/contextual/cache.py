@@ -66,9 +66,14 @@ class DiskCache:
         path = self._path(key)
         path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump(value, fh, ensure_ascii=False)
-        os.replace(tmp, path)  # atomic: concurrent readers see the old or the new file
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(value, fh, ensure_ascii=False)
+            os.replace(tmp, path)  # atomic: concurrent readers see the old or the new file
+        except BaseException:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+            raise
 
     def __len__(self) -> int:
         return sum(1 for _ in self.directory.glob("*/*.json")) if self.directory.exists() else 0

@@ -101,6 +101,12 @@ def test_exhausted_retries_and_permanent_errors_are_reported_not_raised():
     assert "401" in out.error and c.calls == 1 and c.sleeps == []
 
 
+def test_unexpected_exceptions_are_recorded_and_do_not_abort():
+    c = _Scripted([KeyError("choices")], ConnectorLimits())
+    out = c.complete("s", "u")
+    assert out.error.startswith("unexpected KeyError") and c.calls == 1 and out.parsed is None
+
+
 def test_retry_after_of_the_server_is_respected():
     c = _Scripted([TransientError("429", retry_after_s=7.0)], ConnectorLimits())
     assert c.complete("s", "u").error is None and c.sleeps == [7.0]

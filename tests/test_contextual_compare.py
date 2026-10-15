@@ -183,6 +183,8 @@ def test_bootstrap_interval_and_effect_sizes():
     assert np.isnan(cp.cohens_d([1.0], [2.0, 3.0]))
     assert cp.cramers_v(np.array([[50, 0], [0, 50]])) == pytest.approx(1.0)
     assert cp.cramers_v(np.array([[25, 25], [25, 25]])) == pytest.approx(0.0)
+    assert cp.cramers_v(np.array([[50, 0, 0], [0, 50, 0]])) == pytest.approx(1.0)  # empty column
+    assert np.isnan(cp.cramers_v(np.array([[50, 0], [0, 0]])))
     import pandas as pd
 
     df = pd.DataFrame(
