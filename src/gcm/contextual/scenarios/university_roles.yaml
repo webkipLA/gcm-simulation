@@ -1,0 +1,190 @@
+# PLACEHOLDER: a role x opportunity-type scenario for the NetLogo port. Six roles and five
+# types of opportunities are queried; the `assignment` block says how they expand to the 100
+# participants and 100 opportunities of a run (shares per role and per type; the mapping of roles
+# onto abilities is chosen at run time: random, ranked or inverse). The texts, the orders and the
+# shares are a first draft to be revised.
+#
+# Variants as in university_10x10.yaml, following Cohen, March & Olsen (1972, p. 13, Figure 2).
+id: university_roles
+kind: placeholder
+row_entity: participant
+languages: [en, de]
+terms:
+  participant:
+    plural: {en: Groups of members, de: Mitgliedergruppen}
+  opportunity:
+    plural: {en: Kinds of bodies, de: Arten von Gremien}
+notes: >-
+  Placeholder written for the pipeline test. Roles, opportunity types, their order and the
+  shares in the assignment block are to be revised by the author.
+assignment:
+  agents_per_role: [0.03, 0.07, 0.20, 0.15, 0.25, 0.30]
+  opportunities_per_type: [0.05, 0.10, 0.15, 0.30, 0.40]
+participants:
+  - id: presidium
+    rank: 1
+    label: {en: a member of the presidium, de: ein Mitglied des Präsidiums}
+    description:
+      en: belongs to the university leadership, which leads the university as a whole
+      de: gehört zur Hochschulleitung, die die Hochschule als Ganzes führt
+  - id: deans
+    rank: 2
+    label: {en: a dean, de: eine Dekanin}
+    description:
+      en: leads one faculty and represents it towards the university leadership
+      de: leitet eine Fakultät und vertritt sie gegenüber der Hochschulleitung
+  - id: professors
+    rank: 3
+    label: {en: a professor, de: ein Professor}
+    description:
+      en: holds a professorship in a faculty, teaches and leads research
+      de: hat eine Professur in einer Fakultät, lehrt und leitet Forschung
+  - id: administration
+    rank: 4
+    label: {en: a member of the administration, de: eine Mitarbeiterin der Verwaltung}
+    description:
+      en: works in the central or faculty administration on budget, staff, examinations or records
+      de: arbeitet in der zentralen oder der Fakultätsverwaltung an Haushalt, Personal, Prüfungen oder Akten
+  - id: research_staff
+    rank: 5
+    label: {en: a member of the research staff, de: ein wissenschaftlicher Mitarbeiter}
+    description:
+      en: works on a doctorate or in a research project and teaches a few courses
+      de: promoviert oder arbeitet in einem Forschungsprojekt und lehrt einige Kurse
+  - id: students
+    rank: 6
+    label: {en: a student, de: eine Studierende}
+    description:
+      en: is enrolled in a degree programme of the university
+      de: ist in einem Studiengang der Hochschule eingeschrieben
+opportunities:
+  - id: senate
+    rank: 1
+    label: {en: the senate, de: der Senat}
+    description:
+      en: decides on the statutes, the structure and the strategy of the whole university
+      de: entscheidet über Satzungen, Struktur und Strategie der gesamten Hochschule
+  - id: budget_planning
+    rank: 2
+    label: {en: a budget planning round, de: eine Haushaltsplanungsrunde}
+    description:
+      en: allocates funds of the university or of a faculty for the coming year
+      de: verteilt die Mittel der Hochschule oder einer Fakultät für das kommende Jahr
+  - id: appointment_committee
+    rank: 3
+    label: {en: an appointment committee, de: eine Berufungskommission}
+    description:
+      en: selects the candidate for a vacant professorship and proposes the appointment
+      de: wählt die Kandidatin für eine freie Professur aus und schlägt die Berufung vor
+  - id: faculty_council
+    rank: 4
+    label: {en: a faculty council, de: ein Fakultätsrat}
+    description:
+      en: decides on the affairs of one faculty, including its study regulations
+      de: entscheidet über die Angelegenheiten einer Fakultät, darunter ihre Studienordnungen
+  - id: examination_board
+    rank: 5
+    label: {en: an examination board, de: ein Prüfungsausschuss}
+    description:
+      en: decides on examination matters of individual students, such as recognition of credits and appeals
+      de: entscheidet über Prüfungsangelegenheiten einzelner Studierender, etwa Anerkennungen und Widersprüche
+organization:
+  en: >-
+    The organization is a public university with several faculties. Its members belong to
+    different groups, and its decisions are taken in bodies of different kinds. The statements
+    below describe how the university is run.
+  de: >-
+    Die Organisation ist eine staatliche Hochschule mit mehreren Fakultäten. Ihre Mitglieder
+    gehören verschiedenen Gruppen an, und ihre Entscheidungen fallen in Gremien verschiedener
+    Art. Die folgenden Aussagen beschreiben, wie die Hochschule geführt wird.
+variants:
+  - id: strong_power
+    title:
+      en: "University roles placeholder: strong administrative power, strong interrelation of problems"
+      de: "Hochschulrollen-Platzhalter: starke Verwaltungsmacht, stark verflochtene Probleme"
+    factors: {administrative_power: strong, problem_interrelation: strong}
+    expected: hierarchical
+    statements:
+      - en: >-
+          The university leadership and the central administration hold substantial authority.
+          Decisions of a body are binding only after the leadership has endorsed them, and the
+          leadership regularly takes matters into its own hands.
+        de: >-
+          Hochschulleitung und zentrale Verwaltung haben erhebliche Befugnisse. Beschlüsse eines
+          Gremiums sind erst bindend, wenn die Leitung sie gebilligt hat, und die Leitung zieht
+          Angelegenheiten regelmäßig an sich.
+      - en: >-
+          Almost every question touches many others: funding, appointments, study programmes and
+          examinations are treated as parts of one university-wide plan, so groups of higher rank
+          are involved wherever that plan is affected.
+        de: >-
+          Fast jede Frage berührt viele andere: Mittel, Berufungen, Studiengänge und Prüfungen
+          gelten als Teile eines hochschulweiten Plans, sodass Gruppen höheren Ranges überall
+          beteiligt sind, wo dieser Plan betroffen ist.
+      - en: >-
+          Participation in a body depends on the group and its rank. Groups of higher rank may
+          take part in the bodies below their level; groups of lower rank take part only where
+          the regulations provide seats for them.
+        de: >-
+          Die Mitwirkung in einem Gremium richtet sich nach Gruppe und Rang. Gruppen höheren
+          Ranges dürfen in den Gremien unterhalb ihrer Ebene mitwirken; Gruppen niedrigeren
+          Ranges wirken nur dort mit, wo die Ordnungen Sitze für sie vorsehen.
+  - id: moderate_power
+    title:
+      en: "University roles placeholder: moderate administrative power, weak interrelation of problems"
+      de: "Hochschulrollen-Platzhalter: mittlere Verwaltungsmacht, schwach verflochtene Probleme"
+    factors: {administrative_power: moderate, problem_interrelation: weak}
+    expected: specialized
+    statements:
+      - en: >-
+          The university leadership sets the frame and the budget, but within that frame each
+          body decides its own matters, and the leadership rarely intervenes.
+        de: >-
+          Die Hochschulleitung setzt den Rahmen und den Haushalt, doch innerhalb dieses Rahmens
+          entscheidet jedes Gremium seine eigenen Angelegenheiten, und die Leitung greift selten
+          ein.
+      - en: >-
+          Questions are treated as separate from each other: a decision about examinations has
+          no bearing on appointments, a decision about the budget none on the study programmes.
+          Each kind of body therefore handles one clearly delimited kind of question.
+        de: >-
+          Fragen gelten als voneinander getrennt: Eine Entscheidung über Prüfungen hat keinen
+          Einfluss auf Berufungen, eine Entscheidung über den Haushalt keinen auf die
+          Studiengänge. Jede Art von Gremium behandelt daher eine klar abgegrenzte Art von Fragen.
+      - en: >-
+          Every group of members has the one kind of body where its matters are decided and takes
+          part there. Groups do not sit in bodies that deal with other kinds of questions, even
+          if their rank is a higher one.
+        de: >-
+          Jede Mitgliedergruppe hat die eine Art von Gremium, in der ihre Angelegenheiten
+          entschieden werden, und wirkt dort mit. Gruppen sitzen nicht in Gremien, die andere
+          Arten von Fragen behandeln, auch wenn ihr Rang ein höherer ist.
+  - id: weak_power
+    title:
+      en: "University roles placeholder: weak administrative power, moderate interrelation of problems"
+      de: "Hochschulrollen-Platzhalter: schwache Verwaltungsmacht, mäßig verflochtene Probleme"
+    factors: {administrative_power: weak, problem_interrelation: moderate}
+    expected: unsegmented
+    statements:
+      - en: >-
+          The university leadership and the administration have little authority of their own.
+          They prepare and record decisions, but the decisions are taken by whoever takes part in
+          the bodies.
+        de: >-
+          Hochschulleitung und Verwaltung haben wenig eigene Befugnisse. Sie bereiten
+          Entscheidungen vor und protokollieren sie, doch getroffen werden sie von denen, die in
+          den Gremien mitwirken.
+      - en: >-
+          Questions are connected to some degree, so the same matters come up in several kinds
+          of bodies, and it is common for the same people to follow a question from one body to
+          the next.
+        de: >-
+          Fragen hängen in gewissem Maß zusammen, sodass dieselben Angelegenheiten in mehreren
+          Arten von Gremien auftauchen, und es ist üblich, dass dieselben Personen einer Frage
+          von einem Gremium zum nächsten folgen.
+      - en: >-
+          By tradition every member of the university may attend and take part in any body,
+          whatever their group or rank; seats are open to all who turn up.
+        de: >-
+          Der Tradition nach darf jedes Mitglied der Hochschule in jedem Gremium mitwirken,
+          unabhängig von Gruppe und Rang; die Sitze stehen allen offen, die erscheinen.

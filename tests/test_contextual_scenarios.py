@@ -210,3 +210,23 @@ def test_template_hash_identifies_the_query_syntax():
     assert len(hashes) == 6
     with pytest.raises(ValueError, match="no template"):
         prompts.get_template(row_entity="problem", perspective="persona")
+
+
+# ------------------------------------------------------------------------------- placeholders
+def test_university_placeholders_are_marked_and_carry_theory_expectations(scenarios):
+    expected = {
+        "strong_power": "hierarchical",
+        "moderate_power": "specialized",
+        "weak_power": "unsegmented",
+    }
+    for base, shape in (("university", (10, 10)), ("university_roles", (6, 5))):
+        for variant, kind in expected.items():
+            s = scenarios[f"{base}_{variant}"]
+            assert s.kind == "placeholder" and s.shape == shape and s.expected == kind
+            assert s.target_matrix().shape == shape and len(s.statements) == 3
+            assert s.factors["administrative_power"] == variant.split("_")[0]
+            assert "revised" in s.notes
+    roles = scenarios["university_roles_strong_power"]
+    assert sum(roles.assignment["agents_per_role"]) == pytest.approx(1.0)
+    assert sum(roles.assignment["opportunities_per_type"]) == pytest.approx(1.0)
+    assert scenarios["university_weak_power"].assignment is None
