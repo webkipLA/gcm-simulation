@@ -30,7 +30,7 @@ import re
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field, replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from gcm.contextual import prompts
@@ -329,7 +329,7 @@ def run_experiment(
             meta=request.meta,
         )
         stored = {
-            "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "timestamp": datetime.now(UTC).isoformat(timespec="seconds"),
             "completion": completion.as_dict(),
         }
         if cache is not None and completion.error is None:
