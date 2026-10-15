@@ -11,9 +11,11 @@ TH Köln).
 | `gcm.netlogo` | `GarbageCan_simplified17.nlogox` (NetLogo 7.0.4), Guido Fioretti's current version of the agent-based model | Fioretti & Lomi (2008, JASSS 11(1)/1; 2010, CMOT 16(2)); Fioretti (2024) |
 
 Both ports keep every behavioural assumption of the models in a small, swappable component with a
-rule-based default. **No LLM-based component is implemented yet.** The seams exist so that the
-substitutions planned in the Exposé (decision/access structure, optionally energy allocation) can
-be added later without touching the simulation cores.
+rule-based default. The package `gcm.contextual` replaces exactly one of them, the decision
+structure (who may enter which choice opportunity), by a *contextual* structure that language
+models derive from a natural-language description of the organization. Everything else stays
+rule-based, and the simulations never call a language model: they load an exported structure
+file through the existing Protocols.
 
 ## Getting started
 
@@ -22,7 +24,7 @@ The project is managed with [uv](https://docs.astral.sh/uv/).
 ```bash
 uv sync --all-groups            # creates .venv with all dependencies
 uv run marimo edit notebooks/gcm_notebook.py    # interactive notebook
-uv run pytest                   # 30 tests, about one minute
+uv run pytest                   # about 100 tests, under two minutes; LLM tests use a Mock connector
 uv run gcm-fortran              # the 324 situations of the 1972 paper + docking tables (1 s)
 uv run gcm-netlogo --ticks 5000 --repetitions 4 --workers 4   # the 12 BehaviorSpace experiments
 ```
@@ -56,15 +58,81 @@ src/gcm/
     rules.py         resolution inequality, most-difficult-to-latest-arrival flights
     model.py         setup / go: decision-making, flights, movement, monitor
     experiments.py   BehaviorSpace-style runs (multiprocess), sweeps
-notebooks/gcm_notebook.py   marimo notebook: run, inspect, dock, and the architecture overview
-tests/               matrices vs. printed arrays, Table 5 rows, docking tolerances, mechanics
+  contextual/
+    scenario.py      scenarios as YAML data files (ordered participants and opportunities, variants)
+    scenarios/       reference scenarios (the three pure structures in plain language) and
+                     university placeholders along administrative power and problem interrelation
+    representation.py  prose, role list and statute renderings; importance switch; item order
+    prompts.py       system and user templates (wording, perspective, language, query mode),
+                     JSON answer and schema, guard against theory terms in prompts
+    connectors/      one interface; Ollama, OpenAI-compatible (university API), Gemini, Mock
+    cache.py, runlog.py  disk cache keyed by the full request; raw responses as JSON Lines
+    experiment.py    factor grid, call planning (count before running), the runner
+    aggregate.py     yes share, valid n, Wilson interval, threshold or sampled binarization,
+                     degeneracy report, agreement (kappa), distances to the references
+    structure_io.py  the exported structure file (probability matrix, binary matrix, provenance)
+    fortran_adapter.py   DecisionStructure.matrix(state) backed by an export (transposed here)
+    netlogo_adapter.py   role x type export expanded to agents (roles onto abilities: random,
+                     ranked, inverse); the *_may_enter permissions by lookup
+    metrics.py       per-level metrics for both ports (styles, latencies, resolution rates)
+    compare.py       baselines and contextual structures over identical situations or seeds;
+                     chi-square with Cramér's V, bootstrap intervals, paired differences, Cohen's d
+notebooks/gcm_notebook.py   marimo notebook: run, inspect, dock, architecture, contextual structure
+tests/               matrices vs. printed arrays, Table 5 rows, docking tolerances, mechanics,
+                     and the contextual pipeline end to end with the Mock connector
+```
+
+## The contextual decision structure (section 5 of the notebook)
+
+1. A scenario (`gcm/contextual/scenarios/*.yaml`) is rendered as text in one of three formats.
+2. For every participant × opportunity pair a language model is asked, several times, whether
+   the participant is *permitted* to take part (eligibility only; the model never decides whether
+   the participant would want to attend). The answer is a JSON object such as
+   `{"reason": "...", "eligible": true}`; invalid answers are counted, never defaulted.
+3. The answers become a yes share per cell with a Wilson interval, and a binary structure by
+   threshold (default 0.5) or by sampling one matrix per simulation run.
+4. The structure is exported to `data/structures/` and loaded by the simulations through the
+   existing Protocols (`ContextualDecisionStructure` for the FORTRAN port, which needs exactly
+   10 × 10; `ContextualNetLogoDecisionStructure` for the NetLogo port, which expands a small
+   role × type matrix to the agents).
+5. Baselines and the contextual structure are run over the same situations (FORTRAN) or seeds
+   (NetLogo) and compared with the metrics of the codebase plus per-level metrics.
+
+Connectors are configured through environment variables or a git-ignored `.env` (see
+`.env.example`): `OLLAMA_URL`/`OLLAMA_MODEL`, `UNI_API_BASE_URL`/`UNI_API_KEY`/`UNI_API_MODEL`
+(OpenAI-compatible), `GEMINI_API_KEY`/`GEMINI_MODEL`. Without any of them the notebook runs with
+the Mock connector, which answers from the scenario's expected matrix with configurable noise.
+Language models are called only when the notebook's run button is pressed; every request is
+cached on disk (`data/llm_cache/`) and every raw response logged (`data/llm_runs/*.jsonl`), so a
+re-run never repeats a call.
+
+Prompts never mention the garbage can model, the organization type of the 1972 paper or the
+names of the structures. In the texts of this project "organized anarchy" is that organization
+type; in the NetLogo code the same words name the setting without restrictions
+(`Structure.ORGANIZED_ANARCHY`). The unrestricted matrix is called *unsegmented*, as in the
+paper.
+
+```python
+from gcm.contextual import load_scenarios
+from gcm.contextual.aggregate import aggregate
+from gcm.contextual.connectors import MockConnector, OllamaConnector
+from gcm.contextual.experiment import ExperimentConfig, run_experiment
+from gcm.contextual.fortran_adapter import ContextualDecisionStructure
+from gcm.contextual.structure_io import StructureExport
+
+scenario = load_scenarios()["reference_hierarchical"]
+config = ExperimentConfig(scenario.id, representation="statute", language="de", loops=5)
+connector = MockConnector.for_scenario(scenario, noise=0.1)   # or OllamaConnector("qwen3:8b")
+result = run_experiment(scenario, config, connector)
+export = StructureExport.from_estimate(aggregate(result.records, scenario), scenario)
+components.decision_structure = ContextualDecisionStructure(export)   # FortranComponents
 ```
 
 ## Extension points (where LLM agents will plug in)
 
 | Aspect of the GCM | FORTRAN model | NetLogo model |
 |---|---|---|
-| Decision structure: which participants may use which opportunities | `DecisionStructure.matrix(state)` returns matrix D (queried every period) | `DecisionStructure.participant_may_enter(...)` / `.opportunity_may_enter(...)` |
+| Decision structure: which participants may use which opportunities (**contextual implementation in `gcm.contextual`**) | `DecisionStructure.matrix(state)` returns matrix D (queried every period) | `DecisionStructure.participant_may_enter(...)` / `.opportunity_may_enter(...)` |
 | Access structure: which problems reach which opportunities | `AccessStructure.matrix(state)` returns matrix A | `AccessStructure.problem_may_enter(...)` / `.opportunity_may_enter(...)` |
 | Availability structure (solutions) | not in the original model | `AvailabilityStructure.solution_may_enter(...)` / `.opportunity_may_enter(...)` |
 | Energy allocation of decision makers (optional substitution) | `DecisionMakerAllocationRule.choose(dm, state)` | random walk (no seam yet) |
@@ -87,10 +155,9 @@ print(results.share_resolutions)
 ```
 
 The structure components are consulted on every allocation (FORTRAN) or every attempted move
-(NetLogo). An LLM-backed implementation should therefore decide at a coarser granularity (per
-participant and period, or per participant and hierarchy level), cache the answers and merely look
-them up in these methods. This also keeps the LLM calls short, few and independent, as the Exposé
-requires.
+(NetLogo). The contextual implementation therefore decides once, before the simulation, and the
+components merely look the exported structure up in these methods, which keeps the LLM calls
+short, few and independent, as the Exposé requires, and keeps simulation speed unchanged.
 
 ## Fidelity notes
 
@@ -146,6 +213,9 @@ organizational choice. *Journal of Artificial Societies and Social Simulation*, 
 
 Fioretti, G. & Lomi, A. (2010). Passing the buck in the garbage can model of organizational
 choice. *Computational and Mathematical Organization Theory*, 16(2), 113–143.
+
+Ye, J., Cao, L., Chen, D. & Ferrara, E. (2026). Stop drawing scientific claims from LLM social
+simulations without robustness audits. arXiv:2605.18890.
 
 Bendor, J., Moe, T. M. & Shotts, K. W. (2001). Recycling the garbage can: an assessment of the
 research program. *American Political Science Review*, 95(1), 169–190.

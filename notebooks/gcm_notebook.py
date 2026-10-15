@@ -84,10 +84,10 @@ def _(mo):
        `gcm.netlogo`).
 
     Both ports factor every behavioural assumption into a small, swappable component
-    (a Python `Protocol`). Only rule-based implementations exist at this stage: the seams are
-    where the LLM-agent substitutes of the thesis (decision/access structure, optionally energy
-    allocation) will later be plugged in without touching the simulation cores. Section 3
-    documents them.
+    (a Python `Protocol`). Section 3 documents the seams. Section 5 uses one of them: it
+    replaces the decision structure by a contextual one that language models derive from a
+    natural-language description of the organization, and compares the resulting simulations
+    with the rule-based baselines.
     """)
     return
 
@@ -640,8 +640,8 @@ def _(mo):
     histories) from the *behavioural assumptions*, each of which is a `Protocol` with a
     rule-based default. The thesis substitutes the decision and access structures (research
     question 1) and optionally the energy allocation; the other seams are there so that the
-    remaining assumptions can be varied in the same way. Nothing LLM-related is implemented
-    yet; the table lists the exact methods a substitute has to provide.
+    remaining assumptions can be varied in the same way. The table lists the exact methods a
+    substitute has to provide; section 5 provides one for the decision structure.
 
     | Aspect of the GCM | FORTRAN model (`gcm.fortran.interfaces`) | NetLogo model (`gcm.netlogo.interfaces`) |
     |---|---|---|
@@ -742,5 +742,659 @@ def _(mo):
     return
 
 
+@app.cell
+def _():
+    import numpy as np
+
+    from gcm.contextual import aggregate as cx_agg
+    from gcm.contextual import compare as cx_cp
+    from gcm.contextual import prompts as cx_prompts
+    from gcm.contextual.cache import DiskCache
+    from gcm.contextual.connectors import MockConnector, available_connectors
+    from gcm.contextual.experiment import ExperimentConfig, expand_grid, n_calls, plan_calls, run_experiment
+    from gcm.contextual.netlogo_adapter import RoleAssignment
+    from gcm.contextual.paths import cache_dir, runs_dir, structures_dir
+    from gcm.contextual.references import reference_matrices
+    from gcm.contextual.representation import REPRESENTATIONS, TEMPLATES, entity_sentence, render
+    from gcm.contextual.scenario import load_scenarios
+    from gcm.contextual.structure_io import StructureExport
+
+    cx_scenarios = load_scenarios()
+    return (
+        DiskCache,
+        ExperimentConfig,
+        MockConnector,
+        REPRESENTATIONS,
+        RoleAssignment,
+        StructureExport,
+        TEMPLATES,
+        available_connectors,
+        cache_dir,
+        cx_agg,
+        cx_cp,
+        cx_prompts,
+        cx_scenarios,
+        entity_sentence,
+        expand_grid,
+        n_calls,
+        np,
+        plan_calls,
+        reference_matrices,
+        render,
+        run_experiment,
+        runs_dir,
+        structures_dir,
+    )
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""
+    ## 5. A contextual decision structure
+
+    ### 5.1 What is replaced, and why only this
+
+    In the 1972 program the **decision structure** is a fixed 0/1 matrix D that relates decision
+    makers to choice opportunities, and the **access structure** a fixed 0/1 matrix A that relates
+    problems to choice opportunities (Cohen, March and Olsen 1972, pp. 6 and 7). Both are given as
+    data; the hierarchy they express lives only in the index order (a low number is an important
+    element), and who actually attends a choice emerges from the energy dynamics. The NetLogo model
+    (Fioretti and Lomi 2008; Fioretti 2024) applies the same yes/no logic as a movement rule: under
+    the three chooser settings a participant may or may not step next to an opportunity depending
+    on whether its ability lies above a threshold and whether the opportunity counts as important
+    (`who <= hierarchy-divide`).
+
+    This section replaces exactly that component by a **contextual** one. "Contextual" means
+    that the organization is described in natural language, that language models are asked, for
+    every participant and every opportunity, whether the participant is *permitted* to take part,
+    and that the repeated answers are aggregated into a probability matrix and a binary structure
+    (research question 1). The language model judges **eligibility only**. It never decides whether
+    a participant would want to attend, has time or would be useful; those are the behavioural
+    assumptions of the models, and they stay rule-based, so that any change in the outcome
+    distributions (research question 2) can be attributed to the structure alone.
+
+    The structure returns into the simulations as a file. A new implementation of the existing
+    `DecisionStructure` protocols loads it (`gcm.contextual.fortran_adapter`,
+    `gcm.contextual.netlogo_adapter`), so the simulation never calls a language model and runs
+    at the same speed as before. Scenarios are data files (`gcm/contextual/scenarios/*.yaml`); the
+    three reference scenarios describe the pure structures of the paper in plain language and
+    carry the known matrices, so they validate the pipeline. The university scenarios are
+    placeholders. Prompts never mention the model, the theory or the names of the structures, so
+    that answers come from the described context and not from memorized theory. Two words need
+    keeping apart: in this text "organized anarchy" is the organization type of the 1972 paper,
+    such as a university; in the NetLogo code the same words name the setting without
+    restrictions. This section calls the unrestricted matrix *unsegmented*, as the paper does.
+
+    The factors of the robustness audit follow the TRAILS taxonomy (Ye et al. 2026):
+    representation format, prompt wording, perspective, item order, language, model, seed and
+    temperature. Every raw answer is logged as JSON Lines, every request is cached on disk, and
+    language models are only ever called when a run button is pressed.
+    """)
+    return
+
+
+@app.cell
+def _(REPRESENTATIONS, cx_scenarios, mo):
+    cx_scenario = mo.ui.dropdown(
+        options={f"{s.kind}: {s.id}": s.id for s in cx_scenarios.values()},
+        value="reference: reference_hierarchical",
+        label="scenario",
+    )
+    cx_repr = mo.ui.dropdown(options=list(REPRESENTATIONS), value="prose", label="representation")
+    cx_lang = mo.ui.dropdown(options=["en", "de"], value="en", label="language")
+    cx_importance = mo.ui.switch(value=False, label="show level and importance in the prompt")
+    mo.vstack(
+        [
+            mo.md("### 5.2 Representations: how a scenario becomes text"),
+            mo.md(
+                "A scenario has ordered participants and opportunities (the order is the importance order and "
+                "fixes the matrix indices), a description of the organization and statements about how it works. "
+                "The same content is rendered in three formats that differ in form only. Level and importance "
+                "are hidden by default: with the switch off the hierarchy has to emerge from the context; with "
+                "it on the hierarchy is given."
+            ),
+            mo.hstack([cx_scenario, cx_repr, cx_lang, cx_importance], wrap=True),
+        ]
+    )
+    return cx_importance, cx_lang, cx_repr, cx_scenario
+
+
+@app.cell
+def _(TEMPLATES, cx_importance, cx_lang, cx_repr, cx_scenario, cx_scenarios, mo, render):
+    _s = cx_scenarios[cx_scenario.value]
+    _text = render(_s, cx_repr.value, cx_lang.value, show_importance=cx_importance.value)
+    _meta = (
+        f"**{_s.title[cx_lang.value]}** ({_s.kind}, {_s.shape[0]} {_s.row_entity}s × {_s.shape[1]} opportunities"
+        + (f", theory expects *{_s.expected}*" if _s.expected else "")
+        + ")"
+        + (f"  \n*Note: {_s.notes}*" if _s.notes else "")
+    )
+    mo.vstack(
+        [
+            mo.md(_meta),
+            mo.hstack(
+                [
+                    mo.vstack([mo.md("**Template**"), mo.ui.code_editor(TEMPLATES[cx_repr.value], language="text", disabled=True)]),
+                    mo.vstack([mo.md("**Rendered example**"), mo.ui.code_editor(_text, language="text", disabled=True)]),
+                ],
+                widths=[1, 2],
+                wrap=True,
+            ),
+        ]
+    )
+    return
+
+
+@app.cell
+def _(cx_prompts, mo):
+    cx_wording = mo.ui.dropdown(options=list(cx_prompts.WORDINGS), value="a", label="wording")
+    cx_perspective = mo.ui.dropdown(options=list(cx_prompts.PERSPECTIVES), value="observer", label="perspective")
+    cx_mode = mo.ui.dropdown(
+        options={"one call per participant and opportunity": "pairwise", "one call per participant, all opportunities": "per_row"},
+        value="one call per participant and opportunity",
+        label="query mode",
+    )
+    cx_reason = mo.ui.switch(value=True, label="ask for a reason before the verdict")
+    mo.vstack(
+        [
+            mo.md("### 5.3 Query syntax"),
+            mo.md(
+                "The system message fixes the task (eligibility only, nothing but the description, one JSON object) and the answer "
+                "format; the user message carries the rendered description, the pair in question and the question. Placeholders: "
+                "`{organization_description}`, `{participant}`, `{participant_description}`, `{opportunity}`, `{opportunity_list}`, "
+                "`{answer_format}`. Where a provider offers a structured output mode the JSON schema below is sent along. Answers "
+                "that are not a JSON object with a boolean `eligible` are counted as invalid and never replaced by a default."
+            ),
+            mo.hstack([cx_wording, cx_perspective, cx_mode, cx_reason], wrap=True),
+        ]
+    )
+    return cx_mode, cx_perspective, cx_reason, cx_wording
+
+
+@app.cell
+def _(
+    cx_lang,
+    cx_mode,
+    cx_perspective,
+    cx_prompts,
+    cx_reason,
+    cx_repr,
+    cx_scenario,
+    cx_scenarios,
+    cx_wording,
+    entity_sentence,
+    mo,
+    render,
+):
+    import json as _json
+
+    _s = cx_scenarios[cx_scenario.value]
+    _t = cx_prompts.get_template(
+        language=cx_lang.value,
+        row_entity=_s.row_entity,
+        perspective=cx_perspective.value,
+        wording=cx_wording.value,
+        mode=cx_mode.value,
+        with_reason=cx_reason.value,
+    )
+    _row, _col = _s.rows[min(2, len(_s.rows) - 1)], _s.opportunities[min(1, len(_s.opportunities) - 1)]
+    _system, _user = cx_prompts.build_prompt(
+        _t,
+        organization_description=render(_s, cx_repr.value, cx_lang.value),
+        participant=_row.label[cx_lang.value],
+        participant_description=entity_sentence(_row, cx_lang.value),
+        opportunity=_col.label[cx_lang.value],
+        opportunity_list="\n".join(f"- [{o.id}] {o.label[cx_lang.value]}" for o in _s.opportunities),
+    )
+    mo.vstack(
+        [
+            mo.md(f"Template hash `{_t.template_hash}` (identifies the query syntax in the logs). Expected answer: `{_t.answer_format}`"),
+            mo.hstack(
+                [
+                    mo.vstack([mo.md("**System template**"), mo.ui.code_editor(_t.system, language="text", disabled=True)]),
+                    mo.vstack([mo.md("**User template**"), mo.ui.code_editor(_t.user, language="text", disabled=True)]),
+                ],
+                wrap=True,
+            ),
+            mo.accordion(
+                {
+                    "JSON schema of the answer": mo.ui.code_editor(_json.dumps(_t.schema, indent=2), language="json", disabled=True),
+                    f"One filled request ({_row.id} × {_col.id})": mo.ui.code_editor(
+                        "SYSTEM\n" + _system + "\n\nUSER\n" + _user, language="text", disabled=True
+                    ),
+                }
+            ),
+        ]
+    )
+    return
+
+
+@app.cell
+def _(available_connectors, cx_prompts, mo):
+    _configured = list(available_connectors())
+    cx_connectors = mo.ui.multiselect(
+        options=["mock", *_configured], value=["mock"], label="connectors (from .env; mock needs no API)"
+    )
+    cx_noise = mo.ui.slider(0, 0.5, 0.05, value=0.1, label="mock: probability of a flipped answer")
+    cx_invalid = mo.ui.slider(0, 0.5, 0.05, value=0.0, label="mock: probability of an invalid answer")
+    cx_reprs = mo.ui.multiselect(options=["prose", "role_list", "statute"], value=["prose"], label="representations")
+    cx_langs = mo.ui.multiselect(options=["en", "de"], value=["en"], label="languages")
+    cx_wordings = mo.ui.multiselect(options=list(cx_prompts.WORDINGS), value=["a"], label="wordings")
+    cx_perspectives = mo.ui.multiselect(options=list(cx_prompts.PERSPECTIVES), value=["observer"], label="perspectives")
+    cx_order = mo.ui.dropdown(options=["canonical", "shuffled"], value="canonical", label="item order (shuffled anew per loop)")
+    cx_loops = mo.ui.slider(1, 30, 1, value=5, label="loops (repeated questions per pair)")
+    cx_temperature = mo.ui.slider(0.0, 1.5, 0.1, value=0.7, label="temperature")
+    cx_seed = mo.ui.number(0, 100_000, value=0, label="seed")
+    cx_threshold = mo.ui.slider(0.05, 0.95, 0.05, value=0.5, label="binarization threshold")
+    cx_run = mo.ui.run_button(label="Ask the models")
+    mo.vstack(
+        [
+            mo.md("### 5.4 Controls"),
+            mo.md(
+                "Every combination of the selected factor levels is one configuration; each configuration is run with each "
+                "selected connector. Answers already in the disk cache are reused, so pressing the button again never repeats a "
+                "call. Query mode, reason switch, importance switch and scenario are taken from the controls above."
+            ),
+            mo.hstack([cx_connectors, cx_noise, cx_invalid], wrap=True),
+            mo.hstack([cx_reprs, cx_langs, cx_wordings, cx_perspectives, cx_order], wrap=True),
+            mo.hstack([cx_loops, cx_temperature, cx_seed, cx_threshold, cx_run], wrap=True),
+        ]
+    )
+    return (
+        cx_connectors,
+        cx_invalid,
+        cx_langs,
+        cx_loops,
+        cx_noise,
+        cx_order,
+        cx_perspectives,
+        cx_reprs,
+        cx_run,
+        cx_seed,
+        cx_temperature,
+        cx_threshold,
+        cx_wordings,
+    )
+
+
+@app.cell
+def _(
+    ExperimentConfig,
+    cx_connectors,
+    cx_importance,
+    cx_langs,
+    cx_loops,
+    cx_mode,
+    cx_order,
+    cx_perspectives,
+    cx_reason,
+    cx_reprs,
+    cx_scenario,
+    cx_scenarios,
+    cx_seed,
+    cx_temperature,
+    cx_wordings,
+    expand_grid,
+    mo,
+    n_calls,
+):
+    _s = cx_scenarios[cx_scenario.value]
+    cx_configs = expand_grid(
+        ExperimentConfig(
+            _s.id,
+            item_order=cx_order.value,
+            mode=cx_mode.value,
+            with_reason=cx_reason.value,
+            show_importance=cx_importance.value,
+            loops=cx_loops.value,
+            temperature=cx_temperature.value,
+            seed=int(cx_seed.value),
+        ),
+        representation=cx_reprs.value or ["prose"],
+        language=cx_langs.value or ["en"],
+        wording=cx_wordings.value or ["a"],
+        perspective=cx_perspectives.value or ["observer"],
+    )
+    _per_config = n_calls(_s, cx_configs[0])
+    _total = _per_config * len(cx_configs) * max(1, len(cx_connectors.value))
+    mo.md(
+        f"**{_total} calls** before caching: {len(cx_configs)} configuration(s) × {max(1, len(cx_connectors.value))} connector(s) × "
+        f"{_per_config} calls each ({_s.shape[0]} {_s.row_entity}s × "
+        f"{_s.shape[1] if cx_mode.value == 'pairwise' else 1} × {cx_loops.value} loops)."
+    )
+    return (cx_configs,)
+
+
+@app.cell
+def _(
+    DiskCache,
+    MockConnector,
+    available_connectors,
+    cache_dir,
+    cx_agg,
+    cx_configs,
+    cx_connectors,
+    cx_invalid,
+    cx_noise,
+    cx_run,
+    cx_scenario,
+    cx_scenarios,
+    mo,
+    run_experiment,
+    runs_dir,
+):
+    mo.stop(not cx_run.value, mo.md("*Press the button to query the models. Nothing is called on import or on a reactive re-run.*"))
+    _s = cx_scenarios[cx_scenario.value]
+    _factories = available_connectors()
+    cx_estimates = {}
+    cx_runs = {}
+    _cache = DiskCache(cache_dir())
+    _jobs = [(name, cfg) for name in (cx_connectors.value or ["mock"]) for cfg in cx_configs]
+    with mo.status.progress_bar(total=len(_jobs), title="configurations") as _bar:
+        for _name, _cfg in _jobs:
+            if _name == "mock":
+                if _s.target_matrix() is None:
+                    raise ValueError(f"scenario {_s.id} has no expected structure, so the mock has nothing to answer from")
+                _connector = MockConnector.for_scenario(_s, noise=cx_noise.value, invalid_rate=cx_invalid.value, seed=int(_cfg.seed))
+            else:
+                _connector = _factories[_name]()
+            _result = run_experiment(_s, _cfg, _connector, cache=_cache, log_dir=runs_dir())
+            _label = f"{_name} | {_cfg.label()}"
+            cx_runs[_label] = _result
+            cx_estimates[_label] = cx_agg.aggregate(
+                _result.records, _s, label=_label, meta={"connector": _result.identity, "factors": _cfg.as_dict()}
+            )
+            _bar.update()
+    _n_new = sum(r.n_new for r in cx_runs.values())
+    _n_cached = sum(r.n_cached for r in cx_runs.values())
+    _n_err = sum(r.n_errors for r in cx_runs.values())
+    mo.md(
+        f"{len(cx_runs)} run(s): {_n_new} new calls, {_n_cached} from the cache, {_n_err} failed. "
+        f"Raw responses: `{runs_dir()}`; cache: `{cache_dir()}`."
+    )
+    return cx_estimates, cx_runs
+
+
+@app.cell
+def _(cx_estimates, mo):
+    cx_pick = mo.ui.dropdown(options=list(cx_estimates), value=next(iter(cx_estimates)), label="estimate")
+    mo.vstack([mo.md("### 5.5 Results"), cx_pick])
+    return (cx_pick,)
+
+
+@app.cell
+def _(alt, cx_agg, cx_estimates, cx_lang, cx_pick, cx_scenario, cx_scenarios, cx_threshold, mo, np, pd):
+    _s = cx_scenarios[cx_scenario.value]
+    _e = cx_estimates[cx_pick.value]
+    _low, _high = _e.wilson()
+    _uncertain = cx_agg.uncertain_cells(_e, cx_threshold.value)
+    _rows = []
+    for _r, _rid in enumerate(_s.row_ids):
+        for _c, _cid in enumerate(_s.col_ids):
+            _rows.append(
+                {
+                    "participant": _s.rows[_r].label[cx_lang.value],
+                    "opportunity": _s.opportunities[_c].label[cx_lang.value],
+                    "yes share": _e.share[_r, _c],
+                    "valid n": int(_e.valid[_r, _c]),
+                    "invalid": int(_e.invalid[_r, _c] + _e.errors[_r, _c]),
+                    "wilson low": _low[_r, _c],
+                    "wilson high": _high[_r, _c],
+                    "uncertain": bool(_uncertain[_r, _c]),
+                }
+            )
+    _df = pd.DataFrame(_rows)
+    _heat = (
+        alt.Chart(_df)
+        .mark_rect(stroke="white", strokeWidth=1)
+        .encode(
+            x=alt.X("opportunity:N", sort=list(_s.col_labels(cx_lang.value)), title="opportunity (importance order)"),
+            y=alt.Y("participant:N", sort=list(_s.row_labels(cx_lang.value)), title=f"{_s.row_entity} (importance order)"),
+            color=alt.Color("yes share:Q", scale=alt.Scale(scheme="blues", domain=[0, 1]), title="yes share"),
+            tooltip=["participant", "opportunity", alt.Tooltip("yes share:Q", format=".2f"), "valid n", "invalid",
+                     alt.Tooltip("wilson low:Q", format=".2f"), alt.Tooltip("wilson high:Q", format=".2f"), "uncertain"],
+        )
+        .properties(width=min(600, 48 * len(_s.col_ids) + 60), height=min(600, 28 * len(_s.row_ids) + 40),
+                    title="yes share per cell (Wilson interval in the tooltip)")
+    )
+    _binary = pd.DataFrame(
+        np.where(np.isnan(_e.share), "?", np.where(_e.share >= cx_threshold.value, "1", "0")),
+        index=_s.row_ids, columns=_s.col_ids,
+    )
+    _known = ~np.isnan(_e.share)
+    _degenerate = cx_agg.degeneracy(_e.share >= cx_threshold.value, _s.row_ids, _s.col_ids) if _known.all() else None
+    _notes = [
+        f"**{_e.n_answers} answers**, {_e.invalid.sum()} invalid and {_e.errors.sum()} failed ({_e.invalid_share:.1%}); "
+        f"{int(_uncertain.sum())} of {_uncertain.size} cells uncertain at threshold {cx_threshold.value:.2f} "
+        f"(interval contains the threshold or no valid answer)."
+    ]
+    if _degenerate is None:
+        _notes.append("Some cells have no valid answer (`?`); the structure cannot be exported until they are answered.")
+    elif _degenerate["rows_without_opportunity"] or _degenerate["opportunities_without_row"]:
+        _notes.append(f"**Degenerate structure:** rows without any opportunity {_degenerate['rows_without_opportunity']}, "
+                      f"opportunities nobody may enter {_degenerate['opportunities_without_row']}. Reported, not repaired.")
+    mo.vstack(
+        [
+            mo.md(" ".join(_notes)),
+            mo.hstack([_heat, mo.vstack([mo.md(f"**Binary structure** (share ≥ {cx_threshold.value:.2f})"), _binary])], wrap=True),
+        ]
+    )
+    return
+
+
+@app.cell
+def _(cx_agg, cx_estimates, cx_scenario, cx_scenarios, cx_threshold, mo, reference_matrices):
+    _s = cx_scenarios[cx_scenario.value]
+    _refs = reference_matrices(*_s.shape)
+    _dist = cx_agg.distance_table(cx_estimates, _refs, cx_threshold.value).round(3)
+    _agree = cx_agg.agreement_table(cx_estimates, cx_threshold.value).round(3)
+    _expect = f" Theory expects *{_s.expected}* for this scenario." if _s.expected else ""
+    mo.vstack(
+        [
+            mo.md(
+                "**Distance to the three reference structures** (share of differing binary cells; the non-square forms of the references "
+                f"compare ranks as fractions of their axis).{_expect}"
+            ),
+            _dist,
+            mo.md("**Agreement across models and representations** (share of identical cells, Cohen's kappa, mean absolute difference of the yes shares)."),
+            _agree if len(_agree) else mo.md("*Only one estimate; select several connectors or factor levels to compare.*"),
+        ]
+    )
+    return
+
+
+@app.cell
+def _(StructureExport, cx_estimates, cx_lang, cx_pick, cx_scenario, cx_scenarios, cx_threshold, mo, structures_dir):
+    import re as _re
+
+    _s = cx_scenarios[cx_scenario.value]
+    cx_export = StructureExport.from_estimate(
+        cx_estimates[cx_pick.value], _s, threshold=cx_threshold.value, on_missing="error", language=cx_lang.value,
+        name=cx_pick.value,
+    )
+    cx_file = structures_dir() / (_re.sub(r"[^A-Za-z0-9.]+", "-", f"{_s.id}__{cx_pick.value}").strip("-") + ".json")
+    cx_save = mo.ui.run_button(label="Save the selected structure")
+    mo.vstack([mo.md(f"The selected estimate as a structure file (both matrices, labels, provenance): `{cx_file}`"), cx_save])
+    return cx_export, cx_file, cx_save
+
+
+@app.cell
+def _(cx_export, cx_file, cx_save, mo):
+    mo.stop(not cx_save.value, mo.md("*Not saved yet. The comparison below uses the selected structure directly.*"))
+    cx_export.save(cx_file)
+    mo.md(f"Saved `{cx_file}`.")
+    return
+
+
+@app.cell
+def _(mo):
+    cx_f_levels = mo.ui.slider(1, 5, 1, value=2, label="hierarchy levels (groups of ranks)")
+    cx_f_sample = mo.ui.switch(value=True, label="also run the probabilistic mode (one draw per situation)")
+    cx_f_run = mo.ui.run_button(label="Run the FORTRAN comparison")
+    mo.vstack(
+        [
+            mo.md("### 5.6 Simulation comparison"),
+            mo.md(
+                "**FORTRAN port.** The program is deterministic, so the replication unit is the situation: every decision structure is run "
+                "over the same 108 situations (3 loads × 3 access structures × 3 energy distributions × 4 entry conditions). The rule-based "
+                "structures D0, D1 and D2 are the baselines; the contextual structure is the one selected above (10 × 10 scenarios only). "
+                "Decision styles are compared with a chi-square test on the pooled counts and Cramér's V; the other metrics with means, "
+                "bootstrap intervals over situations, paired differences, Cohen's d and a Wilcoxon test."
+            ),
+            mo.hstack([cx_f_levels, cx_f_sample, cx_f_run], wrap=True),
+        ]
+    )
+    return cx_f_levels, cx_f_run, cx_f_sample
+
+
+@app.cell
+def _(alt, cx_cp, cx_export, cx_f_levels, cx_f_run, cx_f_sample, mo, pd):
+    mo.stop(not cx_f_run.value, mo.md("*Press the button; 4 to 5 structures × 108 situations take a few seconds.*"))
+    mo.stop(cx_export.shape != (10, 10), mo.md(f"*The selected structure is {cx_export.shape}; the FORTRAN port needs 10 × 10.*"))
+    _conditions = [*cx_cp.fortran_reference_conditions(), cx_cp.FortranCondition("contextual (threshold)", export=cx_export)]
+    if cx_f_sample.value:
+        _conditions.append(cx_cp.FortranCondition("contextual (sampled)", export=cx_export, mode="sample"))
+    cx_f_results = cx_cp.run_fortran_conditions(_conditions, n_levels=cx_f_levels.value)
+    _styles = cx_cp.style_table(cx_f_results).round(3)
+    _chi = cx_cp.style_chi_square(cx_f_results)
+    _chi_ctx = cx_cp.style_chi_square(cx_f_results, conditions=["D_unsegmented", "contextual (threshold)"])
+    _levels = list(range(1, cx_f_levels.value + 1))
+    _metrics = ["proportion_resolution", "problem_latency", "choice_persistence", "problems_not_solved"] + [
+        f"{m}_L{k}" for k in _levels for m in ("resolution_share", "problems_solved_share", "problem_latency", "time_to_solution")
+    ]
+    _cmp = cx_cp.compare_metrics(cx_f_results, _metrics, "D_unsegmented", paired_on="situation").round(3)
+    _long = cx_f_results.melt(
+        id_vars=["condition"], value_vars=[f"resolution_share_L{k}" for k in _levels], var_name="level", value_name="resolution share"
+    )
+    _chart = (
+        alt.Chart(_long)
+        .mark_bar()
+        .encode(
+            x=alt.X("level:N", title=None), y=alt.Y("mean(resolution share):Q", title="mean resolution share"),
+            color=alt.Color("condition:N", sort=list(_styles.index)), column=alt.Column("condition:N", sort=list(_styles.index), title=None),
+            tooltip=["condition", "level", alt.Tooltip("mean(resolution share):Q", format=".3f")],
+        )
+        .properties(width=90, height=180)
+    )
+    mo.vstack(
+        [
+            mo.md(f"**Decision styles, pooled over 108 situations.** Chi-square over all conditions: χ² = {_chi.chi2:.1f}, df = {_chi.dof}, "
+                  f"p = {_chi.p_value:.2g}, Cramér's V = {_chi.cramers_v:.3f}. Unsegmented vs. contextual (threshold): χ² = {_chi_ctx.chi2:.1f}, "
+                  f"p = {_chi_ctx.p_value:.2g}, V = {_chi_ctx.cramers_v:.3f}."),
+            _styles,
+            mo.md("**Resolution share per hierarchy level** (level 1 = most important choices)."),
+            _chart,
+            mo.md("**Metrics against D0 (unsegmented)**, paired by situation: mean with bootstrap interval, difference with interval, Wilcoxon p, Cohen's d."),
+            mo.ui.table(_cmp, selection=None, page_size=12),
+        ]
+    )
+    return (cx_f_results,)
+
+
+@app.cell
+def _(mo):
+    cx_n_ticks = mo.ui.slider(500, 20_000, 500, value=2000, label="ticks per run")
+    cx_n_seeds = mo.ui.slider(2, 30, 1, value=4, label="seeds (shared by all conditions)")
+    cx_n_workers = mo.ui.slider(1, 16, 1, value=2, label="worker processes")
+    cx_n_mapping = mo.ui.dropdown(options=["random", "ranked", "inverse"], value="random", label="roles onto abilities")
+    cx_n_sample = mo.ui.switch(value=False, label="probabilistic mode (one draw per run)")
+    cx_n_run = mo.ui.run_button(label="Run the NetLogo comparison")
+    mo.vstack(
+        [
+            mo.md(
+                "**NetLogo port.** All conditions are run with the same seeds, so the baseline and the contextual variant start from the "
+                "same agents at the same positions. The role × type matrix of the selected structure is expanded to the 100 participants "
+                "and 100 opportunities: equal shares unless the scenario's `assignment` block says otherwise, the most important type "
+                "takes the lowest `who` numbers, and roles map onto abilities at random, ranked (ablest participants in the most important "
+                "role) or inversely. The contextual structure is run twice, with the availability and access structures unrestricted "
+                "(isolates the component) and with them set as in the competent hierarchy (BehaviorSpace-like). Flights stay on."
+            ),
+            mo.hstack([cx_n_ticks, cx_n_seeds, cx_n_workers, cx_n_mapping, cx_n_sample, cx_n_run], wrap=True),
+        ]
+    )
+    return cx_n_mapping, cx_n_run, cx_n_sample, cx_n_seeds, cx_n_ticks, cx_n_workers
+
+
+@app.cell
+def _(
+    NetLogoParameters,
+    RoleAssignment,
+    Structure,
+    alt,
+    cx_cp,
+    cx_export,
+    cx_n_mapping,
+    cx_n_run,
+    cx_n_sample,
+    cx_n_seeds,
+    cx_n_ticks,
+    cx_n_workers,
+    cx_scenario,
+    cx_scenarios,
+    mo,
+):
+    mo.stop(not cx_n_run.value, mo.md("*Press the button; about 1.4 ms per tick and run, five conditions.*"))
+    _s = cx_scenarios[cx_scenario.value]
+    _assignment = RoleAssignment.for_export(cx_export, **(_s.assignment or {}), ability_mapping=cx_n_mapping.value)
+    _base = NetLogoParameters(stop_at=cx_n_ticks.value)
+    _mode = "sample" if cx_n_sample.value else "threshold"
+    _conditions = [
+        cx_cp.NetLogoCondition("unrestricted", _base.with_structures(Structure.ORGANIZED_ANARCHY)),
+        cx_cp.NetLogoCondition("competent", _base.with_structures(Structure.COMPETENT_HIERARCHY)),
+        cx_cp.NetLogoCondition("incompetent", _base.with_structures(Structure.INCOMPETENT_HIERARCHY)),
+        cx_cp.NetLogoCondition(
+            "contextual | others unrestricted", _base.with_structures(Structure.ORGANIZED_ANARCHY),
+            export=cx_export, assignment=_assignment, mode=_mode,
+        ),
+        cx_cp.NetLogoCondition(
+            "contextual | others competent", _base.with_structures(Structure.COMPETENT_HIERARCHY),
+            export=cx_export, assignment=_assignment, mode=_mode,
+        ),
+    ]
+    cx_n_results = cx_cp.run_netlogo_conditions(_conditions, seeds=range(cx_n_seeds.value), ticks=cx_n_ticks.value, workers=cx_n_workers.value)
+    _styles = cx_cp.style_table(cx_n_results, cx_cp.NETLOGO_STYLES).round(3)
+    _chi = cx_cp.style_chi_square(cx_n_results, cx_cp.NETLOGO_STYLES)
+    _metrics = [
+        "share_resolutions", "decisions", "flights", "ave_duration_blocked",
+        "resolution_share_L1", "resolution_share_L2", "decisions_L1", "decisions_L2", "blocked_for_L1", "blocked_for_L2",
+    ]
+    _cmp = cx_cp.compare_metrics(cx_n_results, _metrics, "unrestricted", paired_on="seed").round(3)
+    _long = cx_n_results.melt(
+        id_vars=["condition", "seed"], value_vars=["resolution_share_L1", "resolution_share_L2"], var_name="level", value_name="resolution share"
+    )
+    _chart = (
+        alt.Chart(_long)
+        .mark_point(filled=True, size=60)
+        .encode(
+            x=alt.X("level:N", title=None), y=alt.Y("resolution share:Q"),
+            color=alt.Color("condition:N", sort=list(_styles.index)), column=alt.Column("condition:N", sort=list(_styles.index), title=None),
+            tooltip=["condition", "seed", "level", alt.Tooltip("resolution share:Q", format=".3f")],
+        )
+        .properties(width=90, height=180)
+    )
+    _demo = _conditions[3].build(0)
+    mo.vstack(
+        [
+            mo.md(f"**Decision styles, pooled over {cx_n_seeds.value} seeds × {cx_n_ticks.value} ticks.** Chi-square over all conditions: "
+                  f"χ² = {_chi.chi2:.1f}, df = {_chi.dof}, p = {_chi.p_value:.2g}, Cramér's V = {_chi.cramers_v:.3f}. "
+                  "Flights are events, not decisions; they appear as metrics below."),
+            _styles,
+            mo.md("**Resolution share per importance level, one point per seed** (level 1 = `who ≤ hierarchy-divide`)."),
+            _chart,
+            mo.md("**Metrics against the unrestricted baseline**, paired by seed."),
+            mo.ui.table(_cmp, selection=None, page_size=10),
+            mo.accordion(
+                {
+                    "Role assignment of the contextual condition (seed 0)": mo.vstack(
+                        [_demo.components.decision_structure.assignment_table(_demo), _demo.components.decision_structure.type_table(_demo)]
+                    )
+                }
+            ),
+        ]
+    )
+    return (cx_n_results,)
+
+
 if __name__ == "__main__":
     app.run()
+
