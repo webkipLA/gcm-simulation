@@ -22,6 +22,7 @@ Usage (from the repository root):
   uv run python scripts/run_batch.py                      # core, det, audit with the only Ollama model
   uv run python scripts/run_batch.py --stages core det    # selected stages
   uv run python scripts/run_batch.py --connector mock     # pipeline test without a model
+  uv run python scripts/run_batch.py --mode per_row --audit representation=role_list perspective=persona
 
 Output:
   data/llm_runs/*.jsonl                 raw answers, one file per complete configuration
@@ -67,20 +68,20 @@ AUDIT = [
 ]
 
 
-def plan(stages: list[str]) -> list[tuple[str, str, ExperimentConfig]]:
+def plan(stages: list[str], main: ExperimentConfig, audit: list[tuple[str, str]], side_loops: int) -> list[tuple[str, str, ExperimentConfig]]:
     jobs: list[tuple[str, str, ExperimentConfig]] = []
     if "core" in stages:
-        jobs += [("core", s, replace(MAIN, scenario_id=s)) for s in REFERENCE]
+        jobs += [("core", s, replace(main, scenario_id=s)) for s in REFERENCE]
     if "det" in stages:
-        jobs += [("det", s, replace(MAIN, scenario_id=s, temperature=0.0, loops=2)) for s in REFERENCE]
+        jobs += [("det", s, replace(main, scenario_id=s, temperature=0.0, loops=side_loops)) for s in REFERENCE]
     if "audit" in stages:
-        for name, level in AUDIT:
+        for name, level in audit:
             jobs += [
-                (f"audit:{name}={level}", s, replace(MAIN, scenario_id=s, loops=2, **{name: level}))
+                (f"audit:{name}={level}", s, replace(main, scenario_id=s, loops=side_loops, **{name: level}))
                 for s in REFERENCE
             ]
     if "university" in stages:
-        jobs += [("university", s, replace(MAIN, scenario_id=s)) for s in UNIVERSITY]
+        jobs += [("university", s, replace(main, scenario_id=s)) for s in UNIVERSITY]
     return jobs
 
 
@@ -138,11 +139,23 @@ def main() -> None:
     ap.add_argument("--university", action="store_true", help="append the university stage")
     ap.add_argument("--connector", help="e.g. ollama/qwen3:8b, gemini/<model>, mock")
     ap.add_argument("--dry-run", action="store_true", help="count cached and missing calls only")
+    ap.add_argument("--mode", choices=["pairwise", "per_row"], default="pairwise",
+                    help="per_row asks about all opportunities of a participant in one call (10x fewer calls)")
+    ap.add_argument("--core-loops", type=int, default=5, help="loops of the core and university stages")
+    ap.add_argument("--side-loops", type=int, default=2, help="loops of the det and audit stages")
+    ap.add_argument("--audit", nargs="+", default=None, metavar="FACTOR=LEVEL",
+                    help=f"subset of the audit, e.g. representation=role_list perspective=persona; "
+                         f"default all: {' '.join(f'{n}={l}' for n, l in AUDIT)}")
     args = ap.parse_args()
 
     stages = list(args.stages) + (["university"] if args.university and "university" not in args.stages else [])
     scenarios = load_scenarios()
-    jobs = plan(stages)
+    audit = AUDIT if args.audit is None else [tuple(a.split("=", 1)) for a in args.audit]
+    unknown = [a for a in audit if a not in AUDIT]
+    if unknown:
+        sys.exit(f"unknown audit levels {unknown}; choose from {AUDIT}")
+    main_cfg = replace(MAIN, mode=args.mode, loops=args.core_loops)
+    jobs = plan(stages, main_cfg, audit, args.side_loops)
     connector_name, factory = pick_connector(args.connector)
     cache = DiskCache(cache_dir())
     out_dir = data_dir() / "batch"
@@ -157,7 +170,7 @@ def main() -> None:
 
     # plan with cache status
     total = missing = 0
-    print(f"connector: {connector_name}")
+    print(f"connector: {connector_name}  mode: {args.mode}")
     for stage, sid, cfg in jobs:
         s = scenarios[sid]
         res = run_experiment(s, cfg, make(s, cfg), cache=cache, cache_only=True)
@@ -200,10 +213,13 @@ def main() -> None:
             writer = csv.DictWriter(fh, fieldnames=list(rows[0]))
             writer.writeheader()
             writer.writerows(rows)
+        lat = [r["latency_s"] for r in res.records if not r["cached"] and r["latency_s"] is not None]
+        if lat:
+            print(f"    model time per new call: mean {np.mean(lat):.1f} s, median {np.median(lat):.1f} s", flush=True)
         if done and missing:
             rate = (time.time() - t0) / done
             left = max(0, missing - done) * rate
-            print(f"    {done}/{missing} new calls, about {left / 3600:.1f} h left", flush=True)
+            print(f"    {done}/{missing} new calls, {rate:.1f} s wall time per call, about {left / 3600:.1f} h left", flush=True)
     print(f"summary: {summary_path}")
 
 

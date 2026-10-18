@@ -1,6 +1,9 @@
 """Ollama (local models) through its native chat API.
 
-Configuration: ``OLLAMA_URL`` (default ``http://localhost:11434``) and ``OLLAMA_MODEL``.
+Configuration: ``OLLAMA_URL`` (default ``http://localhost:11434``), ``OLLAMA_MODEL`` and
+``OLLAMA_THINK`` (``true``/``false``; unset leaves the decision to Ollama, which lets thinking
+models such as qwen3 think). An explicit ``think`` setting becomes part of the connector identity,
+so answers with and without thinking never share a cache entry.
 Structured output: Ollama accepts a JSON schema in the ``format`` field. ``seed`` and
 ``temperature`` go into ``options``, so repeated calls with the same seed are reproducible for
 the same model file and version.
@@ -40,7 +43,10 @@ class OllamaConnector(BaseConnector):
         self._client = httpx.Client(timeout=limits.timeout_s, transport=transport)
 
     def identity(self) -> dict:
-        return {"connector": self.name, "model": self.model, "url": self.url}
+        out = {"connector": self.name, "model": self.model, "url": self.url}
+        if self.think is not None:
+            out["think"] = self.think
+        return out
 
     def _call(self, system, user, temperature, seed, schema, meta):
         payload: dict = {
