@@ -14,7 +14,7 @@ from gcm.contextual.paths import load_env
 ENV_VARIABLES = {
     "ollama": ("OLLAMA_URL", "OLLAMA_MODEL", "OLLAMA_THINK"),
     "university": ("UNI_API_BASE_URL", "UNI_API_KEY", "UNI_API_MODEL"),
-    "gemini": ("GEMINI_API_KEY", "GEMINI_MODEL"),
+    "gemini": ("GEMINI_API_KEY", "GEMINI_MODEL", "GEMINI_THINKING_LEVEL", "GEMINI_THINKING_BUDGET", "GEMINI_RPM"),
 }
 
 
@@ -52,8 +52,13 @@ def available_connectors(read_env: bool = True) -> dict[str, Callable[[], Connec
                 model=m, name="university"
             )
     if os.environ.get("GEMINI_API_KEY"):
+        level = os.environ.get("GEMINI_THINKING_LEVEL", "").strip().lower() or None
+        budget_raw = os.environ.get("GEMINI_THINKING_BUDGET", "").strip()
+        budget = int(budget_raw) if budget_raw else None
         for model in _models("GEMINI_MODEL"):
-            out[f"gemini/{model}"] = lambda m=model: GeminiConnector(model=m)
+            out[f"gemini/{model}"] = lambda m=model: GeminiConnector(
+                model=m, thinking_level=level, thinking_budget=budget
+            )
     return out
 
 

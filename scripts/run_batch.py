@@ -27,7 +27,7 @@ Usage (from the repository root):
 Output:
   data/llm_runs/*.jsonl                 raw answers, one file per complete configuration
   data/structures/batch/*.json          exported structure per complete configuration (threshold 0.5)
-  data/batch/summary.csv                one row per configuration: calls, invalid share, latency,
+  data/batch/summary__<connector>.csv   one row per configuration: calls, invalid share, latency,
                                         distances to D0/D1/D2, kappa against the expected structure
 """
 
@@ -161,7 +161,8 @@ def main() -> None:
     out_dir = data_dir() / "batch"
     out_dir.mkdir(parents=True, exist_ok=True)
     struct_dir = structures_dir() / "batch"
-    summary_path = out_dir / "summary.csv"
+    slug = re.sub(r"[^A-Za-z0-9.]+", "-", connector_name).strip("-")
+    summary_path = out_dir / f"summary__{slug}.csv"  # one file per connector, so runs can go in parallel
 
     def make(scenario, cfg):
         if factory is None:
@@ -200,6 +201,12 @@ def main() -> None:
         rows.append(summary_row(stage, s, cfg, res, connector_name))
         if res.n_errors:
             print(f"    {res.n_errors} failed calls (not cached, asked again on the next start)")
+            last_error = next((r["error"] for r in reversed(res.records) if r["error"]), "")
+            print(f"    last error: {str(last_error)[:200]}")
+        new_ok = sum(1 for r in res.records if not r["cached"] and not r["error"])
+        if res.n_new >= 10 and new_ok == 0:
+            sys.exit("every new call of this configuration failed (daily quota, key or connection?); stopping. "
+                     "Answers so far are cached; start again later.")
         try:
             export = StructureExport.from_estimate(
                 agg.aggregate(res.records, s, label=cfg.label()), s, threshold=0.5,
