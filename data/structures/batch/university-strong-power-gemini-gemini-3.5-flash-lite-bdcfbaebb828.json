@@ -1,0 +1,331 @@
+{
+  "format": "gcm-contextual-structure/1",
+  "name": "gemini/gemini-3.5-flash-lite | prose|a|observer|canonical|en | T=0.7",
+  "scenario_id": "university_strong_power",
+  "row_entity": "participant",
+  "orientation": "rows x opportunities, both in importance order (first = most important)",
+  "row_ids": [
+    "president",
+    "chancellor",
+    "vice_president",
+    "dean",
+    "full_professor",
+    "junior_professor",
+    "research_associate",
+    "faculty_officer",
+    "student_representative",
+    "student"
+  ],
+  "col_ids": [
+    "senate",
+    "budget_planning",
+    "appointment_committee",
+    "faculty_council",
+    "study_commission",
+    "examination_board",
+    "research_funding_round",
+    "module_revision",
+    "lab_procurement",
+    "orientation_week"
+  ],
+  "row_labels": [
+    "the president",
+    "the chancellor",
+    "the vice president for studies",
+    "the dean",
+    "the full professor",
+    "the junior professor",
+    "the research associate",
+    "the faculty administrative officer",
+    "the elected student representative",
+    "the student"
+  ],
+  "col_labels": [
+    "the senate",
+    "the budget planning round",
+    "the appointment committee",
+    "the faculty council",
+    "the study commission",
+    "the examination board",
+    "the internal research funding round",
+    "the module revision working group",
+    "the laboratory equipment procurement",
+    "the orientation week planning"
+  ],
+  "probability": [
+    [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    [
+      1.0,
+      1.0,
+      1.0,
+      0.8,
+      1.0,
+      0.8,
+      0.8,
+      0.8,
+      0.8,
+      0.8
+    ],
+    [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    [
+      0.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    [
+      0.6,
+      0.8,
+      1.0,
+      1.0,
+      0.8,
+      0.8,
+      1.0,
+      0.8,
+      0.8,
+      0.8
+    ],
+    [
+      0.0,
+      0.0,
+      0.4,
+      0.2,
+      0.2,
+      0.2,
+      0.4,
+      0.2,
+      0.2,
+      0.0
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.2,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      0.8,
+      0.6,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.4
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ]
+  ],
+  "valid_n": [
+    [
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5
+    ],
+    [
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5
+    ],
+    [
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5
+    ],
+    [
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5
+    ],
+    [
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5
+    ],
+    [
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5
+    ],
+    [
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5
+    ],
+    [
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5
+    ],
+    [
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5
+    ],
+    [
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5
+    ]
+  ],
+  "binary": [
+    "1111111111",
+    "1111111111",
+    "1111111111",
+    "0111111111",
+    "1111111111",
+    "0000000000",
+    "0000000000",
+    "0000000000",
+    "0001100000",
+    "0000000000"
+  ],
+  "binarization": {
+    "mode": "threshold",
+    "threshold": 0.5,
+    "on_missing": "error"
+  },
+  "degenerate": {
+    "rows_without_opportunity": [
+      "junior_professor",
+      "research_associate",
+      "faculty_officer",
+      "student"
+    ],
+    "opportunities_without_row": []
+  },
+  "provenance": {
+    "label": "prose|a|observer|canonical|en",
+    "created": "2026-10-18T21:29:23+00:00",
+    "invalid_answers": 0,
+    "failed_calls": 0
+  }
+}
