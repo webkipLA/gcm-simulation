@@ -1,0 +1,148 @@
+{
+  "format": "gcm-contextual-structure/1",
+  "name": "gemini/gemini-3.5-flash-lite | university_roles_weak_power",
+  "scenario_id": "university_roles_weak_power",
+  "row_entity": "participant",
+  "orientation": "rows x opportunities, both in importance order (first = most important)",
+  "row_ids": [
+    "presidium",
+    "deans",
+    "professors",
+    "administration",
+    "research_staff",
+    "students"
+  ],
+  "col_ids": [
+    "senate",
+    "budget_planning",
+    "appointment_committee",
+    "faculty_council",
+    "examination_board"
+  ],
+  "row_labels": [
+    "a member of the presidium",
+    "a dean",
+    "a professor",
+    "a member of the administration",
+    "a member of the research staff",
+    "a student"
+  ],
+  "col_labels": [
+    "the senate",
+    "a budget planning round",
+    "an appointment committee",
+    "a faculty council",
+    "an examination board"
+  ],
+  "probability": [
+    [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ]
+  ],
+  "valid_n": [
+    [
+      5,
+      5,
+      5,
+      5,
+      5
+    ],
+    [
+      5,
+      5,
+      5,
+      5,
+      5
+    ],
+    [
+      5,
+      5,
+      5,
+      5,
+      5
+    ],
+    [
+      5,
+      5,
+      5,
+      5,
+      5
+    ],
+    [
+      5,
+      5,
+      5,
+      5,
+      5
+    ],
+    [
+      5,
+      5,
+      5,
+      5,
+      5
+    ]
+  ],
+  "binary": [
+    "11111",
+    "11111",
+    "11111",
+    "11111",
+    "11111",
+    "11111"
+  ],
+  "binarization": {
+    "mode": "threshold",
+    "threshold": 0.5,
+    "on_missing": "error"
+  },
+  "degenerate": {
+    "rows_without_opportunity": [],
+    "opportunities_without_row": []
+  },
+  "provenance": {
+    "label": "gemini/gemini-3.5-flash-lite | university_roles_weak_power",
+    "created": "2026-10-19T11:28:57+00:00",
+    "invalid_answers": 0,
+    "failed_calls": 0
+  }
+}
