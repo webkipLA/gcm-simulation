@@ -25,3 +25,6 @@ results/
 .env
 data/llm_cache/
 data/llm_runs/
+
+# literature: PDFs stay local (copyright); only literature/sources.yaml is tracked
+literature/pdf/

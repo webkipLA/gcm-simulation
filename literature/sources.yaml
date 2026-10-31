@@ -1,0 +1,139 @@
+# Literature used by the code in this repository.
+#
+# Only this list is tracked in git. The PDFs themselves live in literature/pdf/, which is
+# git-ignored: most of these papers are copyrighted by their publishers, and a public
+# repository would redistribute them. Run `uv run scripts/sync_literature.py` to fill the
+# folder on your own machine (see literature/README.md).
+#
+# Fields
+#   key            BibTeX key in the thesis bibliography (literatur.bib); the PDF is stored as <key>.pdf
+#   citation       short citation as used in the thesis
+#   title          title of the work
+#   doi / url      where the published version lives
+#   open_pdf       direct PDF link that may be downloaded freely, or null
+#   match          substrings that identify an existing local copy by file name (case-insensitive)
+#   sha256         checksums of known local copies (identifies files with unhelpful names)
+#   used_in        files in this repository that implement or rely on the work
+
+sources:
+  - key: cohen1972
+    citation: Cohen, March & Olsen (1972)
+    title: A Garbage Can Model of Organizational Choice
+    doi: 10.2307/2392088
+    url: https://www.jstor.org/stable/2392088
+    open_pdf: null
+    match: [cohen_olsen_1972, garbagecanmodeloforganizationalchoice]
+    sha256: [2ca28a0b692dbee5ec5ef661b347d2cd6ee7dc90999634bf7ad03d33c7ae8fa6]
+    used_in:
+      - src/gcm/fortran/          # port of the FORTRAN listing "version five" (appendix)
+      - src/gcm/fortran/data.py   # entry-time cards and solution coefficients
+      - data/reference/GCM_Referenzdaten_CMO1972_Fioretti2008.xlsx
+      - scripts/run_docking.py
+    notes: JSTOR copy, personal use only. Tables 1 to 5 and the listing are the docking targets.
+
+  - key: fioretti2008
+    citation: Fioretti & Lomi (2008)
+    title: An Agent-Based Representation of the Garbage Can Model of Organizational Choice
+    url: https://www.jasss.org/11/1/1.html
+    open_pdf: null
+    match: [fioretti, jasss_11_1_1]
+    sha256: [f8d577cc991af7cd18e5784e0a5dbf70201bfcbb2931843ab5c1b30a61651418]
+    used_in:
+      - src/gcm/netlogo/
+      - data/reference/GCM_Referenzdaten_CMO1972_Fioretti2008.xlsx
+    notes: Free to read on jasss.org (HTML); the local file is a print of that page. Cited by paragraph number.
+
+  - key: bendor2001
+    citation: Bendor, Moe & Shotts (2001)
+    title: "Recycling the Garbage Can: An Assessment of the Research Program"
+    doi: 10.1017/S0003055401000041
+    open_pdf: null
+    match: [recyclingthegarbagecan, recycling_the_garbage_can]
+    sha256: [5f15a44eba0e1a94065373f804db58a2374f984a999cd03e0c893f9ccaed1cfe]
+    used_in:
+      - src/gcm/common/           # decision style definitions (resolution, oversight, flight)
+    notes: JSTOR copy, personal use only. Critique of the FORTRAN listing; basis for the style derivation.
+
+  - key: park2023
+    citation: Park et al. (2023)
+    title: "Generative Agents: Interactive Simulacra of Human Behavior"
+    doi: 10.1145/3586183.3606763
+    url: https://arxiv.org/abs/2304.03442
+    open_pdf: https://arxiv.org/pdf/2304.03442v2
+    match: ["2304.03442"]
+    sha256: [1b31e77fb24d25d7598f2c49e955d12a28b95a6dabad34acdac40f44bfb7a139]
+    used_in: []
+
+  - key: xie2024
+    citation: Xie et al. (2024)
+    title: Can Large Language Model Agents Simulate Human Trust Behavior?
+    doi: 10.52202/079017-0501
+    open_pdf: null
+    match: [simulatehumantrustbehavior, simulate_human_trust_behavior]
+    sha256: [a729dec371ccdf5705d89915d720271d1bdd35a1cf3998c7db65db8891c51140]
+    used_in: []
+    notes: Free on the NeurIPS proceedings site; download it there by hand.
+
+  - key: li2024survey
+    citation: X. Li et al. (2024)
+    title: "A Survey on LLM-Based Multi-Agent Systems: Workflow, Infrastructure, and Challenges"
+    doi: 10.1007/s44336-024-00009-2
+    open_pdf: https://link.springer.com/content/pdf/10.1007/s44336-024-00009-2.pdf
+    match: [s44336024000092, s44336-024-00009-2]
+    sha256: [c39a7abf36a6df397138177cde5fe7015f120a9670438e91e357c6e1031555ce]
+    used_in: []
+    notes: Open access (Vicinagearth).
+
+  - key: ye2026
+    citation: Ye et al. (2026)
+    title: Stop Drawing Scientific Claims from LLM Social Simulations Without Robustness Audits
+    url: https://arxiv.org/abs/2605.18890
+    open_pdf: https://arxiv.org/pdf/2605.18890v1
+    match: ["2605.18890"]
+    sha256: [313d79d4080ccc81ce816a21bbfdb97f6d60e98bdd4ee3d27d13dafc09089fbe]
+    used_in:
+      - scripts/run_batch.py      # audit stage, one factor at a time (TRAILS dimensions)
+      - src/gcm/contextual/
+
+  # Works the code relies on that are not yet stored locally.
+  - key: fioretti2010
+    citation: Fioretti & Lomi (2010)
+    title: Passing the Buck in the Garbage Can Model of Organizational Choice
+    doi: 10.1007/s10588-010-9070-6
+    open_pdf: null
+    match: [passing_the_buck, passingthebuck, s10588-010-9070-6]
+    sha256: []
+    used_in:
+      - src/gcm/netlogo/          # buck passing (BP) experiments
+
+  - key: fioretti2024
+    citation: Fioretti (2024)
+    title: Emergence and Evolution of Organizations out of Garbage Can Dynamics
+    doi: 10.1093/icc/dtad029
+    open_pdf: null
+    match: [dtad029]
+    sha256: []
+    used_in:
+      - src/gcm/netlogo/
+
+  - key: fioretti2026netlogo
+    citation: Fioretti (2026), CoMSES release 4.1.0
+    title: The Garbage Can Model of Organizational Choice (NetLogo model)
+    doi: 10.25937/8hqh-0753
+    url: https://www.comses.net/codebases/f0613922-9cb1-4656-a26c-af57f823fb69/releases/4.1.0/
+    open_pdf: null
+    match: []
+    sha256: []
+    used_in:
+      - src/gcm/netlogo/
+    notes: Code, not a paper. Compare release 4.1.0 against GarbageCan_simplified17.nlogox.
+
+  - key: axtell1996
+    citation: Axtell et al. (1996)
+    title: "Aligning Simulation Models: A Case Study and Results"
+    doi: 10.1007/BF01299065
+    open_pdf: null
+    match: [aligning_simulation_models, aligningsimulationmodels, bf01299065]
+    sha256: []
+    used_in:
+      - scripts/run_docking.py    # docking terminology (numerical identity, relational alignment)

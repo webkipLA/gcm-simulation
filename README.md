@@ -205,6 +205,10 @@ parallelises repetitions across processes.
 
 ## References
 
+The full list, with DOIs and the modules that use each work, is in `literature/sources.yaml`.
+`uv run scripts/sync_literature.py` keeps local copies of the PDFs in `literature/pdf/`, which is
+not part of the repository (see `literature/README.md`).
+
 Cohen, M. D., March, J. G. & Olsen, J. P. (1972). A garbage can model of organizational choice.
 *Administrative Science Quarterly*, 17(1), 1–25.
 
