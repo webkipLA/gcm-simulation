@@ -4,13 +4,14 @@
 #     "marimo>=0.24.2",
 # ]
 # ///
+
 import marimo
 
 __generated_with = "0.24.2"
 app = marimo.App(width="full", app_title="Garbage Can Model")
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _():
     import marimo as mo
 
@@ -68,7 +69,7 @@ def _():
     )
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     # The Garbage Can Model of Organizational Choice
@@ -92,7 +93,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## 1. The FORTRAN model (Cohen, March and Olsen 1972)
@@ -276,7 +277,7 @@ def _(alt, f_history, mo, pd):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ### 1.2 Docking against the published results
@@ -356,7 +357,7 @@ def _(alt, f_all, mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## 2. The agent-based model (Fioretti and Lomi; NetLogo port)
@@ -583,7 +584,7 @@ def _(abm, alt, mo, pd):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ### 2.2 The BehaviorSpace experiments
@@ -631,7 +632,7 @@ def _(alt, bs_reps, bs_ticks, bs_workers, mo, nx, run_bs):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## 3. Architecture: where the LLM agents will plug in
@@ -714,7 +715,7 @@ def _(GarbageCanABM, NetLogoComponents, NetLogoParameters, Structure, mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## 4. Notes on fidelity
@@ -778,7 +779,6 @@ def _():
         expand_grid,
         n_calls,
         np,
-        plan_calls,
         reference_matrices,
         render,
         run_experiment,
@@ -787,7 +787,7 @@ def _():
     )
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## 5. A contextual decision structure
@@ -860,7 +860,16 @@ def _(REPRESENTATIONS, cx_scenarios, mo):
 
 
 @app.cell
-def _(TEMPLATES, cx_importance, cx_lang, cx_repr, cx_scenario, cx_scenarios, mo, render):
+def _(
+    TEMPLATES,
+    cx_importance,
+    cx_lang,
+    cx_repr,
+    cx_scenario,
+    cx_scenarios,
+    mo,
+    render,
+):
     _s = cx_scenarios[cx_scenario.value]
     _text = render(_s, cx_repr.value, cx_lang.value, show_importance=cx_importance.value)
     _meta = (
@@ -1112,7 +1121,7 @@ def _(
         f"{len(cx_runs)} run(s): {_n_new} new calls, {_n_cached} from the cache, {_n_err} failed. "
         f"Raw responses: `{runs_dir()}`; cache: `{cache_dir()}`."
     )
-    return cx_estimates, cx_runs
+    return (cx_estimates,)
 
 
 @app.cell
@@ -1123,7 +1132,19 @@ def _(cx_estimates, mo):
 
 
 @app.cell
-def _(alt, cx_agg, cx_estimates, cx_lang, cx_pick, cx_scenario, cx_scenarios, cx_threshold, mo, np, pd):
+def _(
+    alt,
+    cx_agg,
+    cx_estimates,
+    cx_lang,
+    cx_pick,
+    cx_scenario,
+    cx_scenarios,
+    cx_threshold,
+    mo,
+    np,
+    pd,
+):
     _s = cx_scenarios[cx_scenario.value]
     _e = cx_estimates[cx_pick.value]
     _low, _high = _e.wilson()
@@ -1183,7 +1204,15 @@ def _(alt, cx_agg, cx_estimates, cx_lang, cx_pick, cx_scenario, cx_scenarios, cx
 
 
 @app.cell
-def _(cx_agg, cx_estimates, cx_scenario, cx_scenarios, cx_threshold, mo, reference_matrices):
+def _(
+    cx_agg,
+    cx_estimates,
+    cx_scenario,
+    cx_scenarios,
+    cx_threshold,
+    mo,
+    reference_matrices,
+):
     _s = cx_scenarios[cx_scenario.value]
     _refs = reference_matrices(*_s.shape)
     _dist = cx_agg.distance_table(cx_estimates, _refs, cx_threshold.value).round(3)
@@ -1204,7 +1233,17 @@ def _(cx_agg, cx_estimates, cx_scenario, cx_scenarios, cx_threshold, mo, referen
 
 
 @app.cell
-def _(StructureExport, cx_estimates, cx_lang, cx_pick, cx_scenario, cx_scenarios, cx_threshold, mo, structures_dir):
+def _(
+    StructureExport,
+    cx_estimates,
+    cx_lang,
+    cx_pick,
+    cx_scenario,
+    cx_scenarios,
+    cx_threshold,
+    mo,
+    structures_dir,
+):
     import re as _re
 
     _s = cx_scenarios[cx_scenario.value]
@@ -1248,7 +1287,7 @@ def _(mo):
 
 
 @app.cell
-def _(alt, cx_cp, cx_export, cx_f_levels, cx_f_run, cx_f_sample, mo, pd):
+def _(alt, cx_cp, cx_export, cx_f_levels, cx_f_run, cx_f_sample, mo):
     mo.stop(not cx_f_run.value, mo.md("*Press the button; 4 to 5 structures × 108 situations take a few seconds.*"))
     mo.stop(cx_export.shape != (10, 10), mo.md(f"*The selected structure is {cx_export.shape}; the FORTRAN port needs 10 × 10.*"))
     _conditions = [*cx_cp.fortran_reference_conditions(), cx_cp.FortranCondition("contextual (threshold)", export=cx_export)]
@@ -1288,7 +1327,7 @@ def _(alt, cx_cp, cx_export, cx_f_levels, cx_f_run, cx_f_sample, mo, pd):
             mo.ui.table(_cmp, selection=None, page_size=12),
         ]
     )
-    return (cx_f_results,)
+    return
 
 
 @app.cell
@@ -1312,7 +1351,14 @@ def _(mo):
             mo.hstack([cx_n_ticks, cx_n_seeds, cx_n_workers, cx_n_mapping, cx_n_sample, cx_n_run], wrap=True),
         ]
     )
-    return cx_n_mapping, cx_n_run, cx_n_sample, cx_n_seeds, cx_n_ticks, cx_n_workers
+    return (
+        cx_n_mapping,
+        cx_n_run,
+        cx_n_sample,
+        cx_n_seeds,
+        cx_n_ticks,
+        cx_n_workers,
+    )
 
 
 @app.cell
@@ -1392,9 +1438,8 @@ def _(
             ),
         ]
     )
-    return (cx_n_results,)
+    return
 
 
 if __name__ == "__main__":
     app.run()
-
