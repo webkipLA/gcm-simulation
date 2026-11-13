@@ -568,3 +568,55 @@ def test_rate_limits_and_server_errors_are_handled_as_before(rb, data, monkeypat
     with pytest.raises(SystemExit, match="every new call of this configuration failed"):
         rb.main(COMMON)
     assert server.calls == 40  # 20 calls, each retried once
+
+
+# ------------------------------------------------------------------- university API connector
+@pytest.fixture
+def uni_env(data, monkeypatch):
+    monkeypatch.setenv("UNI_API_BASE_URL", NOWHERE + "/v1")
+    monkeypatch.setenv("UNI_API_KEY", "k")
+    monkeypatch.setenv("UNI_API_MODEL", "open-model-a, open-model-b")
+    return data
+
+
+def test_university_connector_is_accepted_under_both_names(rb, uni_env, monkeypatch):
+    name, factory = rb.pick_connector("university/open-model-a")
+    short, short_factory = rb.pick_connector("uni/open-model-a")
+    assert name == short == "university/open-model-a"
+    assert factory().identity() == short_factory().identity() == {
+        "connector": "university", "model": "open-model-a",
+        "base_url": NOWHERE + "/v1", "structured": "json_schema",
+    }
+    # the model name and the output format are part of the identity, and so of the cache key
+    assert rb.pick_connector("uni/open-model-b")[1]().identity()["model"] == "open-model-b"
+    monkeypatch.setenv("UNI_API_STRUCTURED", "json_object")
+    assert rb.pick_connector("uni/open-model-a")[1]().identity()["structured"] == "json_object"
+    with pytest.raises(SystemExit, match="not configured"):
+        rb.pick_connector("uni/another-model")
+
+
+def test_university_connector_plans_and_reads_its_own_cache_entries(rb, uni_env, scenarios, capsys):
+    jobs = rb.plan(["core"], replace(rb.MAIN, mode="per_row", loops=1), rb.AUDIT, 2, ["reference_hierarchical"])
+    fill_cache(uni_env, jobs, scenarios, rb.pick_connector("uni/open-model-a")[1]().identity())
+    common = ["--mode", "per_row", "--stages", "core", "--core-loops", "1", "--scenarios", "reference_hierarchical"]
+    rb.main(["--connector", "uni/open-model-b", *common, "--dry-run"])
+    out = capsys.readouterr().out.splitlines()
+    assert out[0] == "connector: university/open-model-b  mode: per_row"
+    assert out[-1] == "total 10 calls, 10 still to ask"
+    rb.main(["--connector", "uni/open-model-a", *common])
+    assert names(uni_env / "batch") == ["summary__university-open-model-a.csv"]
+    row = read_summary(uni_env / "batch" / "summary__university-open-model-a.csv")[0]
+    assert row["connector"] == "university/open-model-a" and row["new_calls"] == "0"
+
+
+def test_help_names_every_connector_and_gives_an_example_per_new_flag(rb, capsys):
+    with pytest.raises(SystemExit):
+        rb.main(["--help"])
+    text = capsys.readouterr().out
+    usage = text[text.index("Usage (from the repository root)") : text.index("Output:")]
+    for flag in ("--seed 1", "--scenarios reference_hierarchical", "--stages university_audit",
+                 "--stages university_np", "--thinking-level low", "--ollama-think false",
+                 "--no-fail-fast", "--connector uni/<model>"):
+        assert flag in usage, flag
+    for name in ("ollama/<model>", "gemini/<model>", "university/<model>", "uni/<model>", "mock"):
+        assert name in text

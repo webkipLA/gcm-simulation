@@ -22,6 +22,12 @@ pairwise, reason on, importance off, seed 0.
 
 --scenarios restricts the core, det and audit stages to some of the three reference scenarios.
 
+--connector takes ollama/<model>, gemini/<model>, university/<model> (short: uni/<model>) or mock.
+A model is available when .env configures it: OLLAMA_MODEL, GEMINI_MODEL with GEMINI_API_KEY,
+UNI_API_MODEL with UNI_API_BASE_URL (an OpenAI-compatible endpoint; UNI_API_KEY and
+UNI_API_STRUCTURED are read as well). Each of the three variables may list several models,
+separated by commas. The model name is part of the connector identity and of every cache key.
+
 --thinking-level LEVEL sets the thinking level of a Gemini connector for this run and takes
 precedence over GEMINI_THINKING_LEVEL and GEMINI_THINKING_BUDGET in .env ("default" sends no
 thinking setting, so the model decides). --ollama-think true|false does the same for OLLAMA_THINK.
@@ -56,6 +62,7 @@ Usage (from the repository root):
   uv run python scripts/run_batch.py --mode per_row --stages university_np
   uv run python scripts/run_batch.py --connector gemini/<model> --mode per_row --stages core --thinking-level low
   uv run python scripts/run_batch.py --connector ollama/qwen3:4b --mode per_row --stages core --ollama-think false
+  uv run python scripts/run_batch.py --connector uni/<model> --mode per_row --stages core
   uv run python scripts/run_batch.py --no-fail-fast       # try every call even after an HTTP 4xx refusal
 
 Output:
@@ -150,6 +157,8 @@ def pick_connector(name: str | None, thinking_level: str | None = None, ollama_t
         else None if thinking_level == "default" else thinking_level,
         ollama_think=FROM_ENV if ollama_think is None else ollama_think == "true",
     )
+    if name and name.startswith("uni/"):  # short form; files and cache use the full name
+        name = "university/" + name.removeprefix("uni/")
     if name:
         if name not in factories:
             sys.exit(f"connector {name!r} not configured; available: {sorted(factories) or 'none (check .env)'}")
@@ -213,7 +222,9 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--stages", nargs="+", default=["core", "det", "audit"],
                     choices=["core", "det", "audit", "university", "university_audit", "university_np"])
     ap.add_argument("--university", action="store_true", help="append the university stage")
-    ap.add_argument("--connector", help="e.g. ollama/qwen3:8b, gemini/<model>, mock")
+    ap.add_argument("--connector", help="ollama/<model>, gemini/<model>, university/<model> (or uni/<model>, the "
+                                        "OpenAI-compatible endpoint of UNI_API_BASE_URL), mock; e.g. ollama/qwen3:8b, "
+                                        "uni/<model>. Models must be listed in .env")
     ap.add_argument("--dry-run", action="store_true", help="count cached and missing calls only")
     ap.add_argument("--mode", choices=["pairwise", "per_row"], default="pairwise",
                     help="per_row asks about all opportunities of a participant in one call (10x fewer calls)")
