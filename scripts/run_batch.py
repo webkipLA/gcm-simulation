@@ -12,6 +12,8 @@ most important configurations complete:
 Main configuration = the notebook presets: prose, wording a, observer, canonical order, English,
 pairwise, reason on, importance off, seed 0.
 
+--scenarios restricts the core, det and audit stages to some of the three reference scenarios.
+
 --seed N sets the base seed from which the seed of every call and the shuffled item orders are
 derived. Seed 0 is the default and gives the requests that have been asked so far; any other seed
 gives new requests and writes to its own files (..__seed<N>), so nothing is overwritten.
@@ -28,6 +30,7 @@ Usage (from the repository root):
   uv run python scripts/run_batch.py --connector mock     # pipeline test without a model
   uv run python scripts/run_batch.py --mode per_row --audit representation=role_list perspective=persona
   uv run python scripts/run_batch.py --mode per_row --stages core --seed 1   # a second, independent sample
+  uv run python scripts/run_batch.py --mode per_row --stages audit --scenarios reference_hierarchical
 
 Output:
   data/llm_runs/*.jsonl                 raw answers, one file per complete configuration
@@ -73,17 +76,26 @@ AUDIT = [
 ]
 
 
-def plan(stages: list[str], main: ExperimentConfig, audit: list[tuple[str, str]], side_loops: int) -> list[tuple[str, str, ExperimentConfig]]:
+def plan(
+    stages: list[str],
+    main: ExperimentConfig,
+    audit: list[tuple[str, str]],
+    side_loops: int,
+    reference: list[str] | None = None,
+) -> list[tuple[str, str, ExperimentConfig]]:
+    """The jobs of the given stages in priority order. ``reference`` restricts the reference
+    scenarios of the core, det and audit stages (default: all three)."""
+    reference = REFERENCE if reference is None else [s for s in REFERENCE if s in reference]
     jobs: list[tuple[str, str, ExperimentConfig]] = []
     if "core" in stages:
-        jobs += [("core", s, replace(main, scenario_id=s)) for s in REFERENCE]
+        jobs += [("core", s, replace(main, scenario_id=s)) for s in reference]
     if "det" in stages:
-        jobs += [("det", s, replace(main, scenario_id=s, temperature=0.0, loops=side_loops)) for s in REFERENCE]
+        jobs += [("det", s, replace(main, scenario_id=s, temperature=0.0, loops=side_loops)) for s in reference]
     if "audit" in stages:
         for name, level in audit:
             jobs += [
                 (f"audit:{name}={level}", s, replace(main, scenario_id=s, loops=side_loops, **{name: level}))
-                for s in REFERENCE
+                for s in reference
             ]
     if "university" in stages:
         jobs += [("university", s, replace(main, scenario_id=s)) for s in UNIVERSITY]
@@ -148,6 +160,9 @@ def main(argv: list[str] | None = None) -> None:
                     help="per_row asks about all opportunities of a participant in one call (10x fewer calls)")
     ap.add_argument("--core-loops", type=int, default=5, help="loops of the core and university stages")
     ap.add_argument("--side-loops", type=int, default=2, help="loops of the det and audit stages")
+    ap.add_argument("--scenarios", nargs="+", default=None, choices=REFERENCE, metavar="NAME",
+                    help=f"reference scenarios of the core, det and audit stages, e.g. --scenarios "
+                         f"reference_hierarchical; default all: {' '.join(REFERENCE)}")
     ap.add_argument("--seed", type=int, default=0, metavar="N",
                     help="base seed of all stages (default 0 = the runs made so far); other seeds write to "
                          "files with the suffix __seed<N>, e.g. --seed 1")
@@ -165,7 +180,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.seed < 0:
         sys.exit("--seed must not be negative")
     main_cfg = replace(MAIN, mode=args.mode, loops=args.core_loops, seed=args.seed)
-    jobs = plan(stages, main_cfg, audit, args.side_loops)
+    jobs = plan(stages, main_cfg, audit, args.side_loops, args.scenarios)
     connector_name, factory = pick_connector(args.connector)
     cache = DiskCache(cache_dir())
     out_dir = data_dir() / "batch"

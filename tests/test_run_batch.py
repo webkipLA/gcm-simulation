@@ -164,3 +164,30 @@ def test_runs_with_different_seeds_write_to_different_files(rb, data, capsys):
 def test_negative_seed_is_rejected(rb, data):
     with pytest.raises(SystemExit, match="negative"):
         rb.main(["--connector", "mock", "--seed", "-1", "--dry-run"])
+
+
+# -------------------------------------------------------------------------------- --scenarios
+def test_scenarios_restricts_the_reference_stages_only(rb, data, capsys):
+    rb.main(["--connector", "mock", "--mode", "per_row", "--university", "--dry-run",
+             "--scenarios", "reference_hierarchical"])
+    lines = capsys.readouterr().out.splitlines()
+    jobs = [line.split()[:2] for line in lines[1:-1]]
+    assert len(jobs) == 1 + 1 + 6 + 3
+    assert {sid for stage, sid in jobs if stage != "university"} == {"reference_hierarchical"}
+    assert [sid for stage, sid in jobs if stage == "university"] == rb.UNIVERSITY
+    assert lines[-1] == "total 340 calls, 340 still to ask"  # 50 + 20 + 6 * 20 + 150
+
+
+def test_scenarios_keeps_the_order_and_the_requests_of_the_full_plan(rb, scenarios):
+    main = replace(rb.MAIN, mode="per_row")
+    stages = ["core", "det", "audit"]
+    full = rb.plan(stages, main, rb.AUDIT, 2)
+    assert rb.plan(stages, main, rb.AUDIT, 2, rb.REFERENCE) == full
+    picked = ["reference_unsegmented", "reference_hierarchical"]
+    part = rb.plan(stages, main, rb.AUDIT, 2, picked)
+    assert part == [job for job in full if job[1] in picked]
+
+
+def test_unknown_scenario_is_rejected(rb, data):
+    with pytest.raises(SystemExit):
+        rb.main(["--connector", "mock", "--dry-run", "--scenarios", "university_strong_power"])
