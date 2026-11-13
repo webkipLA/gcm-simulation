@@ -629,7 +629,8 @@ COLUMNS_BEFORE = (  # header written at commit 2e16e9f
     "invalid_share,mean_latency_s,cells_undetermined,allowed_cells,dist_unsegmented,"
     "dist_hierarchical,dist_specialized,kappa_expected,template_hash,config_hash"
 ).split(",")
-PROVENANCE = ["model", "base_seed", "thinking", "query_mode", "git_commit", "run_date", "first_call", "last_call"]
+PROVENANCE = ["model", "base_seed", "thinking", "query_mode", "git_commit", "run_date", "first_call", "last_call",
+              "structure_file"]
 
 
 def test_summary_keeps_its_columns_and_appends_the_provenance(rb, data, capsys):
@@ -674,3 +675,38 @@ def test_git_commit_is_empty_outside_a_checkout(rb, tmp_path, monkeypatch):
     monkeypatch.setattr(rb, "__file__", str(tmp_path / "run_batch.py"))
     monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path.parent))
     assert rb.git_commit() == ""
+
+
+# ----------------------------------------------------- telling the structures apart afterwards
+def test_structures_of_new_stages_and_seeds_can_be_told_apart(rb, data, capsys):
+    """Every exported structure says where it comes from, and the summary names its file, so an
+    analysis can select by stage, scenario and seed instead of by file name pattern."""
+    import json
+
+    common = ["--connector", "mock", "--mode", "per_row", "--core-loops", "1", "--side-loops", "1"]
+    stages = ["core", "university", "university_audit", "university_np"]
+    rb.main([*common, "--stages", *stages, "--audit", "item_order=shuffled"])
+    rb.main([*common, "--stages", "university", "--seed", "1"])
+    directory = data / "structures" / "batch"
+    rows = read_summary(data / "batch" / "summary__mock.csv") + read_summary(data / "batch" / "summary__mock__seed1.csv")
+    assert len(rows) == 3 + 3 + 3 + 3 + 3
+    files = [r["structure_file"] for r in rows]
+    assert len(set(files)) == len(files) == len(names(directory))  # nothing was overwritten
+
+    seen = set()
+    for row in rows:
+        doc = json.loads((directory / row["structure_file"]).read_text(encoding="utf-8"))
+        p = doc["provenance"]
+        assert (p["stage"], doc["scenario_id"]) == (row["stage"], row["scenario"])
+        assert str(p["factors"]["seed"]) == row["base_seed"] and p["config_hash"] == row["config_hash"]
+        assert p["factors"]["mode"] == "per_row" and p["connector"]["connector"] == "mock"
+        seen.add((p["stage"], doc["scenario_id"], p["factors"]["seed"]))
+    assert len(seen) == len(rows)
+
+    # the trap of selecting by file name: one prefix, four different experiments
+    prefix = [f for f in files if f.startswith("university-strong-power-")]
+    by_stage = {r["stage"] for r in rows if r["structure_file"] in prefix}
+    assert by_stage == {"university", "university_audit:item_order=shuffled", "university_np"} and len(prefix) == 4
+    # the selection that is safe
+    main = [r for r in rows if r["stage"] == "university" and r["base_seed"] == "0"]
+    assert [r["scenario"] for r in main] == rb.UNIVERSITY

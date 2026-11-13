@@ -67,14 +67,22 @@ Usage (from the repository root):
 
 Output:
   data/llm_runs/*.jsonl                 raw answers, one file per complete configuration
-  data/structures/batch/*.json          exported structure per complete configuration (threshold 0.5)
+  data/structures/batch/*.json          exported structure per complete configuration (threshold 0.5);
+                                        its "provenance" names the stage, the connector identity, all
+                                        factors with the seed, the config hash and the git commit
   data/batch/summary__<connector>.csv   one row per configuration: calls, invalid share, latency,
                                         distances to D0/D1/D2, kappa against the expected structure,
                                         and, appended as the last columns, the provenance of the row:
                                         model (as requested), base_seed, thinking, query_mode,
                                         git_commit (short hash, "+dirty" with uncommitted changes),
                                         run_date (day the row was written), first_call and last_call
-                                        (when the answers were given; cached answers keep their time)
+                                        (when the answers were given; cached answers keep their time),
+                                        structure_file (name of the exported structure, empty if none)
+
+To analyse a subset, select rows of the summary by stage, scenario and base_seed and load the
+files named in structure_file, or filter the structure files by their provenance. Do not select
+structure files by the start of their name: university-strong-power-* also matches the files of
+university_strong_power_no_participation, of the university_audit stage and of other seeds.
 """
 
 from __future__ import annotations
@@ -351,6 +359,7 @@ def main(argv: list[str] | None = None) -> None:
                      f"thinking level, output format), not a quota or a server problem. "
                      f"Answers so far are cached.\nServer message:\n{res.config_error}")
         rows.append(summary_row(stage, s, cfg, res, connector_name, commit))
+        rows[-1]["structure_file"] = ""
         if res.n_errors:
             print(f"    {res.n_errors} failed calls (not cached, asked again on the next start)")
             last_error = next((r["error"] for r in reversed(res.records) if r["error"]), "")
@@ -361,11 +370,15 @@ def main(argv: list[str] | None = None) -> None:
                      "Answers so far are cached; start again later.")
         try:
             export = StructureExport.from_estimate(
-                agg.aggregate(res.records, s, label=cfg.label()), s, threshold=0.5,
+                agg.aggregate(res.records, s, label=cfg.label(), meta={
+                    "stage": stage, "connector": res.identity, "factors": cfg.as_dict(),
+                    "config_hash": cfg.config_hash, "template_hash": res.template_hash, "git_commit": commit,
+                }), s, threshold=0.5,
                 on_missing="error", name=f"{connector_name} | {cfg.label()} | T={cfg.temperature}",
             )
             name = re.sub(r"[^A-Za-z0-9.]+", "-", f"{sid}__{connector_name}__{cfg.config_hash}{suffix}").strip("-")
             export.save(struct_dir / f"{name}.json")
+            rows[-1]["structure_file"] = f"{name}.json"
         except agg.UndeterminedCellsError as exc:
             print(f"    structure not exported: {exc}")
         with summary_path.open("w", newline="", encoding="utf-8") as fh:
