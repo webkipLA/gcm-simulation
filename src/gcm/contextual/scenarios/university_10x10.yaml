@@ -245,3 +245,16 @@ variants:
           Der Tradition nach darf jedes Mitglied der Hochschule in jedem Gremium, Ausschuss und
           jeder Arbeitsrunde mitwirken, unabhängig von Amt und Rang; die Sitze stehen allen offen,
           die erscheinen.
+  # The three variants again without their statement on who takes part in which body (the third
+  # statement of each). Everything else is taken over unchanged from the variant named in
+  # `derived_from`. The omitted sentences and the borderline sentences that were kept are listed
+  # in docs/university_no_participation_diff.md.
+  - id: strong_power_no_participation
+    derived_from: strong_power
+    omit_statements: [3]
+  - id: moderate_power_no_participation
+    derived_from: moderate_power
+    omit_statements: [3]
+  - id: weak_power_no_participation
+    derived_from: weak_power
+    omit_statements: [3]

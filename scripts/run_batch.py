@@ -13,6 +13,9 @@ Further stages that run only when they are named in --stages:
 
   university_audit  the audit factors, one at a time, applied to the 3 university variants,
                     temperature 0.7, 2 loops (--side-loops); respects --audit
+  university_np     the 3 university variants without their statement on who takes part in which
+                    body (scenarios university_*_no_participation), main configuration, 5 loops
+                    (--core-loops); see docs/university_no_participation_diff.md
 
 Main configuration = the notebook presets: prose, wording a, observer, canonical order, English,
 pairwise, reason on, importance off, seed 0.
@@ -37,6 +40,7 @@ Usage (from the repository root):
   uv run python scripts/run_batch.py --mode per_row --stages core --seed 1   # a second, independent sample
   uv run python scripts/run_batch.py --mode per_row --stages audit --scenarios reference_hierarchical
   uv run python scripts/run_batch.py --mode per_row --stages university_audit --audit item_order=shuffled
+  uv run python scripts/run_batch.py --mode per_row --stages university_np
 
 Output:
   data/llm_runs/*.jsonl                 raw answers, one file per complete configuration
@@ -68,6 +72,7 @@ from gcm.contextual.structure_io import StructureExport
 
 REFERENCE = ["reference_hierarchical", "reference_specialized", "reference_unsegmented"]
 UNIVERSITY = ["university_strong_power", "university_moderate_power", "university_weak_power"]
+UNIVERSITY_NP = [f"{s}_no_participation" for s in UNIVERSITY]
 
 MAIN = ExperimentConfig(scenario_id="", loops=5, temperature=0.7, seed=0)
 
@@ -111,6 +116,8 @@ def plan(
                 (f"university_audit:{name}={level}", s, replace(main, scenario_id=s, loops=side_loops, **{name: level}))
                 for s in UNIVERSITY
             ]
+    if "university_np" in stages:
+        jobs += [("university_np", s, replace(main, scenario_id=s)) for s in UNIVERSITY_NP]
     return jobs
 
 
@@ -164,13 +171,13 @@ def summary_row(stage, scenario, cfg, result, connector_name) -> dict:
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--stages", nargs="+", default=["core", "det", "audit"],
-                    choices=["core", "det", "audit", "university", "university_audit"])
+                    choices=["core", "det", "audit", "university", "university_audit", "university_np"])
     ap.add_argument("--university", action="store_true", help="append the university stage")
     ap.add_argument("--connector", help="e.g. ollama/qwen3:8b, gemini/<model>, mock")
     ap.add_argument("--dry-run", action="store_true", help="count cached and missing calls only")
     ap.add_argument("--mode", choices=["pairwise", "per_row"], default="pairwise",
                     help="per_row asks about all opportunities of a participant in one call (10x fewer calls)")
-    ap.add_argument("--core-loops", type=int, default=5, help="loops of the core and university stages")
+    ap.add_argument("--core-loops", type=int, default=5, help="loops of the core, university and university_np stages")
     ap.add_argument("--side-loops", type=int, default=2, help="loops of the det, audit and university_audit stages")
     ap.add_argument("--scenarios", nargs="+", default=None, choices=REFERENCE, metavar="NAME",
                     help=f"reference scenarios of the core, det and audit stages, e.g. --scenarios "

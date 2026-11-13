@@ -21,11 +21,7 @@ from gcm.contextual.experiment import plan_calls
 from gcm.contextual.scenario import load_scenarios
 
 ROOT = Path(__file__).resolve().parents[1]
-ENV = (
-    "OLLAMA_URL OLLAMA_MODEL OLLAMA_THINK UNI_API_BASE_URL UNI_API_KEY UNI_API_MODEL "
-    "UNI_API_STRUCTURED GEMINI_API_KEY GEMINI_MODEL GEMINI_THINKING_LEVEL GEMINI_THINKING_BUDGET "
-    "GEMINI_RPM GEMINI_BASE_URL"
-).split()
+ENV = ["OLLAMA_URL", "OLLAMA_MODEL", "OLLAMA_THINK", "UNI_API_BASE_URL", "UNI_API_KEY", "UNI_API_MODEL", "UNI_API_STRUCTURED", "GEMINI_API_KEY", "GEMINI_MODEL", "GEMINI_THINKING_LEVEL", "GEMINI_THINKING_BUDGET", "GEMINI_RPM", "GEMINI_BASE_URL"]
 
 
 @pytest.fixture(scope="module")
@@ -206,7 +202,7 @@ def test_university_audit_applies_every_factor_to_the_three_variants(rb, scenari
             assert cfg == replace(main, scenario_id=sid, loops=2, **{name: level})
     # the same factors, loops and seeds as the audit of the reference scenarios
     reference = rb.plan(["audit"], main, rb.AUDIT, 2)
-    strip = lambda js: [replace(cfg, scenario_id="") for _, _, cfg in js]  # noqa: E731
+    strip = lambda js: [replace(cfg, scenario_id="") for _, _, cfg in js]
     assert strip(jobs) == strip(reference)
 
 
@@ -231,3 +227,96 @@ def test_university_audit_runs_and_is_labelled_in_the_summary(rb, data, capsys):
     stages = [r.split(",")[header.index("stage")] for r in rows[1:]]
     assert stages == ["university_audit:language=de"] * 3 + ["university_audit:wording=b"] * 3
     assert len(names(data / "structures" / "batch")) == 6
+
+
+# ------------------------------------------------------------------------------ university_np
+VARIANTS = ("strong_power", "moderate_power", "weak_power")
+
+
+@pytest.mark.parametrize("variant", VARIANTS)
+def test_no_participation_variants_differ_by_the_removed_statement_only(scenarios, variant):
+    from dataclasses import fields
+
+    from gcm.contextual.representation import REPRESENTATIONS, render
+
+    full = scenarios[f"university_{variant}"]
+    cut = scenarios[f"university_{variant}_no_participation"]
+    assert cut.statements == full.statements[:2] and len(full.statements) == 3
+    for f in fields(full):
+        if f.name not in ("id", "statements"):
+            a, b = getattr(full, f.name), getattr(cut, f.name)
+            assert a is b or a == b, f.name
+    for language in ("en", "de"):
+        removed = full.statements[2][language]
+        assert ("part" if language == "en" else "Gremi") in removed
+        # in running text the copy is the original minus the removed statement, character by character
+        assert render(cut, "prose", language) == render(full, "prose", language).replace(" " + removed, "")
+        for representation in REPRESENTATIONS:
+            text = render(cut, representation, language)
+            assert removed not in text
+            assert all(s[language] in text for s in cut.statements)
+
+
+def test_review_document_lists_every_removed_statement(scenarios):
+    text = (ROOT / "docs" / "university_no_participation_diff.md").read_text(encoding="utf-8")
+    for variant in VARIANTS:
+        removed = scenarios[f"university_{variant}"].statements[2]
+        assert f"## university_{variant}" in text
+        assert removed["en"] in text and removed["de"] in text
+    assert text.count("### Unclear (kept)") == 3
+
+
+def test_derived_variants_are_validated(tmp_path, scenarios):
+    import yaml
+
+    from gcm.contextual.scenario import ScenarioError, load_scenario_file
+
+    source = ROOT / "src" / "gcm" / "contextual" / "scenarios" / "university_10x10.yaml"
+    base = yaml.safe_load(source.read_text(encoding="utf-8"))
+    base["variants"] = base["variants"][:3]
+
+    def load(**derived):
+        doc = {**base, "variants": [*base["variants"], {"id": "copy", **derived}]}
+        path = tmp_path / "s.yaml"
+        path.write_text(yaml.safe_dump(doc, allow_unicode=True), encoding="utf-8")
+        return {s.id: s for s in load_scenario_file(path)}
+
+    got = load(derived_from="weak_power", omit_statements=[1, 3])
+    assert got["university_copy"].statements == scenarios["university_weak_power"].statements[1:2]
+    assert got["university_weak_power"].statements == scenarios["university_weak_power"].statements
+    for bad in (
+        {"derived_from": "nobody", "omit_statements": [3]},
+        {"derived_from": "weak_power"},
+        {"derived_from": "weak_power", "omit_statements": []},
+        {"derived_from": "weak_power", "omit_statements": [4]},
+        {"derived_from": "weak_power", "omit_statements": [0]},
+        {"derived_from": "weak_power", "omit_statements": [3, 3]},
+        {"derived_from": "weak_power", "omit_statements": [3], "expected": "specialized"},
+        {"derived_from": "weak_power", "omit_statements": [3], "statements": []},
+    ):
+        with pytest.raises(ScenarioError):
+            load(**bad)
+
+
+def test_university_np_is_opt_in_and_runs_like_the_university_stage(rb, data, capsys):
+    main = replace(rb.MAIN, mode="per_row", loops=4)
+    np_jobs = rb.plan(["university_np"], main, rb.AUDIT, 2)
+    uni_jobs = rb.plan(["university"], main, rb.AUDIT, 2)
+    assert [sid for _, sid, _ in np_jobs] == [f"{sid}_no_participation" for _, sid, _ in uni_jobs]
+    assert [replace(c, scenario_id="") for _, _, c in np_jobs] == [replace(c, scenario_id="") for _, _, c in uni_jobs]
+
+    rb.main(["--connector", "mock", "--mode", "per_row", "--university", "--dry-run"])
+    assert "no_participation" not in capsys.readouterr().out
+    rb.main(["--connector", "mock", "--mode", "per_row", "--stages", "university_np"])
+    out = capsys.readouterr().out
+    assert "total 150 calls, 150 still to ask" in out
+    rows = (data / "batch" / "summary__mock.csv").read_text().splitlines()
+    assert len(rows) == 4 and all(r.startswith("university_np,") for r in rows[1:])
+    assert all("no-participation" in n for n in names(data / "structures" / "batch"))
+
+
+def test_dry_run_of_the_new_stages(rb, data, capsys):
+    rb.main(["--connector", "mock", "--mode", "per_row", "--stages", "university_audit", "university_np", "--dry-run"])
+    lines = capsys.readouterr().out.splitlines()
+    assert len(lines) == 1 + 18 + 3 + 1
+    assert lines[-1] == "total 510 calls, 510 still to ask"  # 6 * 3 * 20 + 3 * 50

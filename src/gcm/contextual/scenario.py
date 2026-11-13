@@ -12,6 +12,11 @@ carries an explicit ``rank`` that must agree with its position.
 One file may define several *variants* that share the entities and differ in the statements
 about the organization. Each variant becomes its own :class:`Scenario` with the id
 ``<file id>_<variant id>``.
+
+A variant may be *derived* from another variant of the same file: ``derived_from: <variant id>``
+with ``omit_statements: [n, ...]`` (1-based positions in the statements of that variant). The
+derived variant is a copy of the other one without the listed statements. It cannot set anything
+else, so the two differ in the omitted statements and in nothing besides.
 """
 
 from __future__ import annotations
@@ -259,6 +264,50 @@ def _build(base: Mapping, variant: Mapping | None, source: str) -> Scenario:
     )
 
 
+_DERIVED_KEYS = {"id", "derived_from", "omit_statements"}
+
+
+def _resolve_derived(variants: list, source: str) -> list[Mapping]:
+    """Replace every derived variant by a copy of its source without the omitted statements."""
+    plain = {
+        str(v.get("id")): v for v in variants if isinstance(v, Mapping) and "derived_from" not in v
+    }
+    out: list[Mapping] = []
+    for variant in variants:
+        if not isinstance(variant, Mapping) or "derived_from" not in variant:
+            out.append(variant)
+            continue
+        where = f"{source}:{variant.get('id', '')}"
+        extra = sorted(set(variant) - _DERIVED_KEYS)
+        if extra:
+            raise ScenarioError(
+                f"{where}: a derived variant takes id, derived_from and omit_statements only, "
+                f"got also {extra}"
+            )
+        origin = plain.get(str(variant["derived_from"]))
+        if origin is None:
+            raise ScenarioError(
+                f"{where}: derived_from must name a variant of this file that is not itself "
+                f"derived, got {variant['derived_from']!r}"
+            )
+        statements = list(origin.get("statements") or [])
+        omit = variant.get("omit_statements")
+        valid = (
+            isinstance(omit, list)
+            and omit
+            and all(type(n) is int and 1 <= n <= len(statements) for n in omit)
+            and len(set(omit)) == len(omit)
+        )
+        if not valid:
+            raise ScenarioError(
+                f"{where}: omit_statements must list distinct positions between 1 and "
+                f"{len(statements)}, got {omit!r}"
+            )
+        kept = [s for n, s in enumerate(statements, start=1) if n not in omit]
+        out.append({**origin, "id": variant.get("id", ""), "statements": kept})
+    return out
+
+
 def load_scenario_file(path: str | Path) -> list[Scenario]:
     """Load one YAML file. A file with ``variants`` yields one scenario per variant."""
     path = Path(path)
@@ -269,7 +318,7 @@ def load_scenario_file(path: str | Path) -> list[Scenario]:
     variants = data.get("variants")
     if not variants:
         return [_build(data, None, path.name)]
-    return [_build(data, v, path.name) for v in variants]
+    return [_build(data, v, path.name) for v in _resolve_derived(variants, path.name)]
 
 
 def load_scenarios(directory: str | Path | None = None) -> dict[str, Scenario]:
