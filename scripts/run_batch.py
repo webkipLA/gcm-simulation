@@ -69,7 +69,12 @@ Output:
   data/llm_runs/*.jsonl                 raw answers, one file per complete configuration
   data/structures/batch/*.json          exported structure per complete configuration (threshold 0.5)
   data/batch/summary__<connector>.csv   one row per configuration: calls, invalid share, latency,
-                                        distances to D0/D1/D2, kappa against the expected structure
+                                        distances to D0/D1/D2, kappa against the expected structure,
+                                        and, appended as the last columns, the provenance of the row:
+                                        model (as requested), base_seed, thinking, query_mode,
+                                        git_commit (short hash, "+dirty" with uncommitted changes),
+                                        run_date (day the row was written), first_call and last_call
+                                        (when the answers were given; cached answers keep their time)
 """
 
 from __future__ import annotations
@@ -77,9 +82,11 @@ from __future__ import annotations
 import argparse
 import csv
 import re
+import subprocess
 import sys
 import time
 from dataclasses import replace
+from datetime import date
 from pathlib import Path
 
 import numpy as np
@@ -182,7 +189,25 @@ def thinking_setting(identity: dict) -> str:
     return ""
 
 
-def summary_row(stage, scenario, cfg, result, connector_name) -> dict:
+def git_commit() -> str:
+    """Short hash of the checked-out commit of this script, with "+dirty" when tracked files
+    differ from it; empty when the script does not run from a git checkout."""
+    here = Path(__file__).resolve().parent
+
+    def git(*args: str) -> str:
+        done = subprocess.run(["git", "-C", str(here), *args], capture_output=True, text=True, timeout=30)
+        if done.returncode != 0:
+            raise OSError(done.stderr.strip())
+        return done.stdout.strip()
+
+    try:
+        commit = git("rev-parse", "--short", "HEAD")
+        return commit + ("+dirty" if git("status", "--porcelain", "--untracked-files=no") else "")
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def summary_row(stage, scenario, cfg, result, connector_name, commit: str = "") -> dict:
     est = agg.aggregate(result.records, scenario, label=cfg.label())
     share = est.share
     refs = reference_matrices(*scenario.shape)
@@ -212,8 +237,15 @@ def summary_row(stage, scenario, cfg, result, connector_name) -> dict:
         "kappa_expected": round(kappa, 3) if not np.isnan(kappa) else "",
         "template_hash": result.template_hash,
         "config_hash": cfg.config_hash,
-        # appended later; the columns above keep their names and their order
+        # provenance, appended later; the columns above keep their names and their order
+        "model": result.identity.get("model", ""),
+        "base_seed": cfg.seed,
         "thinking": thinking_setting(result.identity),
+        "query_mode": cfg.mode,
+        "git_commit": commit,
+        "run_date": date.today().isoformat(),
+        "first_call": min((r["timestamp"] for r in result.records), default=""),
+        "last_call": max((r["timestamp"] for r in result.records), default=""),
     }
 
 
@@ -298,6 +330,7 @@ def main(argv: list[str] | None = None) -> None:
         else:
             return
 
+    commit = git_commit()
     rows, done, t0 = [], 0, time.time()
     for i, (stage, sid, cfg) in enumerate(jobs, 1):
         s = scenarios[sid]
@@ -317,7 +350,7 @@ def main(argv: list[str] | None = None) -> None:
                      f"call(s), {res.n_missing} not asked. This is a configuration error (model name, key, "
                      f"thinking level, output format), not a quota or a server problem. "
                      f"Answers so far are cached.\nServer message:\n{res.config_error}")
-        rows.append(summary_row(stage, s, cfg, res, connector_name))
+        rows.append(summary_row(stage, s, cfg, res, connector_name, commit))
         if res.n_errors:
             print(f"    {res.n_errors} failed calls (not cached, asked again on the next start)")
             last_error = next((r["error"] for r in reversed(res.records) if r["error"]), "")

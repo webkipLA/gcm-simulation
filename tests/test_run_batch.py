@@ -620,3 +620,57 @@ def test_help_names_every_connector_and_gives_an_example_per_new_flag(rb, capsys
         assert flag in usage, flag
     for name in ("ollama/<model>", "gemini/<model>", "university/<model>", "uni/<model>", "mock"):
         assert name in text
+
+
+# ------------------------------------------------------------------- provenance in the summary
+COLUMNS_BEFORE = (  # header written at commit 2e16e9f
+    "stage,connector,model_ids,scenario,expected,representation,wording,perspective,item_order,"
+    "language,mode,with_reason,show_importance,loops,temperature,seed,calls,new_calls,errors,"
+    "invalid_share,mean_latency_s,cells_undetermined,allowed_cells,dist_unsegmented,"
+    "dist_hierarchical,dist_specialized,kappa_expected,template_hash,config_hash"
+).split(",")
+PROVENANCE = ["model", "base_seed", "thinking", "query_mode", "git_commit", "run_date", "first_call", "last_call"]
+
+
+def test_summary_keeps_its_columns_and_appends_the_provenance(rb, data, capsys):
+    import re
+    import subprocess
+    from datetime import date
+
+    rb.main(["--connector", "mock", "--mode", "per_row", "--stages", "core", "--core-loops", "1", "--seed", "7"])
+    path = data / "batch" / "summary__mock__seed7.csv"
+    header = path.read_text().splitlines()[0].split(",")
+    assert header == [*COLUMNS_BEFORE, *PROVENANCE]
+    rows = read_summary(path)
+    assert len(rows) == 3
+    head = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--short", "HEAD"], capture_output=True, text=True)
+    for row in rows:
+        assert row["model"] == "mock" and row["model_ids"] == "mock(noise=0.1)"
+        assert row["base_seed"] == row["seed"] == "7"
+        assert row["query_mode"] == row["mode"] == "per_row"
+        assert row["thinking"] == ""
+        assert row["run_date"] == date.today().isoformat()
+        assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\+00:00", row["first_call"])
+        assert row["first_call"] <= row["last_call"]
+        if head.returncode == 0:
+            assert row["git_commit"] in (head.stdout.strip(), head.stdout.strip() + "+dirty")
+
+
+def test_cached_answers_keep_the_time_of_the_call_in_the_summary(rb, data, capsys):
+    argv = ["--connector", "mock", "--mode", "per_row", "--stages", "core", "--core-loops", "1"]
+    rb.main(argv)
+    first = read_summary(data / "batch" / "summary__mock.csv")
+    rb.main(argv)  # everything cached: the summary is rewritten
+    again = read_summary(data / "batch" / "summary__mock.csv")
+    assert [r["new_calls"] for r in again] == ["0"] * 3
+    for a, b in zip(first, again, strict=True):
+        assert (a["first_call"], a["last_call"]) == (b["first_call"], b["last_call"])
+        assert {k: a[k] for k in COLUMNS_BEFORE if k not in ("new_calls", "mean_latency_s")} == {
+            k: b[k] for k in COLUMNS_BEFORE if k not in ("new_calls", "mean_latency_s")
+        }
+
+
+def test_git_commit_is_empty_outside_a_checkout(rb, tmp_path, monkeypatch):
+    monkeypatch.setattr(rb, "__file__", str(tmp_path / "run_batch.py"))
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path.parent))
+    assert rb.git_commit() == ""
