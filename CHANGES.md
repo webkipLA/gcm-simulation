@@ -60,6 +60,23 @@ now also holds `stage`, `connector` (identity), `factors` (with seed, mode, loop
 `structure_file` of the summary, not by the start of the file name: `university-strong-power-*`
 also matches the no_participation variant, the university audit and other seeds.
 
+### Analysis (scripts/analyse_results.py)
+
+The script reads the run logs and selects runs by model, scenario and factors. The scenario id is
+compared exactly, and every audit run differs from the main configuration in one factor, so the
+stages university_np and university_audit could not be confused with the university stage. Two
+things did need a change:
+
+- The selection did not look at the seed. With a second seed for the same configuration the script
+  stopped with "2 matching run logs". It now takes base seed 0 for the comparisons and figures.
+- `ff2_configs.csv` had no column for the seed or the thinking setting, so rows of two seeds looked
+  alike. `seed` and `thinking` are appended as the last columns. Token counts of OpenAI-compatible
+  servers (the university API) are now read as well.
+
+Not solvable from the factors: the same model with the same configuration and two thinking
+settings. The script then stops and names both log files instead of choosing one. The numbers for
+the existing run logs do not change.
+
 ### Scenario files
 
 A variant may be declared as `derived_from: <variant>` with `omit_statements: [n, ...]`. It is a

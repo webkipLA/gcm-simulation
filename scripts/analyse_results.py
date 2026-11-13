@@ -20,7 +20,11 @@ Usage (from the repository root):
   uv run python scripts/analyse_results.py --workers 6
 
 Runs are selected by their factors, not by file names: Gemini = gemini-3.5-flash-lite, the small
-model = qwen3:4b; main configuration = prose, wording a, observer, canonical order, English.
+model = qwen3:4b; main configuration = prose, wording a, observer, canonical order, English,
+base seed 0. Runs of run_batch.py with another --seed, of the stages university_audit and
+university_np and of other models are listed in ff2_configs.csv (columns seed and thinking tell
+them apart) and are never used for the FF3 comparisons and the figures. If one model has run
+logs for the same configuration with two thinking settings, the script stops and names the files.
 """
 
 from __future__ import annotations
@@ -38,6 +42,7 @@ import pandas as pd
 
 from gcm.contextual import aggregate as agg
 from gcm.contextual import compare as cp
+from gcm.contextual.connectors.registry import thinking_setting
 from gcm.contextual.paths import data_dir
 from gcm.contextual.references import reference_matrices
 from gcm.contextual.scenario import load_scenarios
@@ -65,16 +70,19 @@ def load_runs(scenarios) -> list[dict]:
         if s is None:
             continue
         out.append(dict(file=Path(f).name, model=recs[0]["model"], fac=fac, scen=s,
-                        est=agg.aggregate(recs, s), recs=recs))
+                        identity=recs[0].get("identity") or {}, est=agg.aggregate(recs, s), recs=recs))
     return out
 
 
 def pick(runs, model, scenario, **factors):
-    want = {**MAIN, **factors}
+    want = {**MAIN, "seed": 0, **factors}  # seed 0 = the runs of the thesis; other seeds are extra samples
     hits = [r for r in runs if r["model"] == model and r["scen"].id == scenario
             and all(r["fac"].get(k) == v for k, v in want.items())]
     if len(hits) != 1:
-        raise LookupError(f"{model} / {scenario} / {want}: {len(hits)} matching run logs")
+        found = "; ".join(f"{r['file']} ({thinking_setting(r['identity']) or 'no thinking setting'})" for r in hits)
+        raise LookupError(f"{model} / {scenario} / {want}: {len(hits)} matching run logs"
+                          + (f": {found}. They differ in the connector settings only; keep the one that is meant "
+                             f"in data/llm_runs" if hits else ""))
     return hits[0]
 
 
@@ -100,8 +108,9 @@ def ff2_table(runs) -> pd.DataFrame:
         kappa = agg.cohen_kappa(b, target) if (target is not None and known.all() and s.expected != "unsegmented") else np.nan
         ok = [x for x in r["recs"] if not x["error"]]
         usage = [x["usage"] or {} for x in ok]
-        tok_in = [u.get("prompt_eval_count", u.get("promptTokenCount")) for u in usage]
-        tok_out = [u.get("eval_count", u.get("candidatesTokenCount")) for u in usage]
+        # Ollama, Gemini and OpenAI-compatible servers (the university API) name the counts differently
+        tok_in = [u.get("prompt_eval_count", u.get("promptTokenCount", u.get("prompt_tokens"))) for u in usage]
+        tok_out = [u.get("eval_count", u.get("candidatesTokenCount", u.get("completion_tokens"))) for u in usage]
         rows.append({
             "model": r["model"], "scenario": s.id, "expected": s.expected, **{k: f[k] for k in
             ("mode", "representation", "wording", "perspective", "item_order", "language", "temperature", "loops")},
@@ -115,8 +124,10 @@ def ff2_table(runs) -> pd.DataFrame:
             "tokens_in": round(float(np.mean([t for t in tok_in if t is not None])), 0) if any(t is not None for t in tok_in) else None,
             "tokens_out": round(float(np.mean([t for t in tok_out if t is not None])), 0) if any(t is not None for t in tok_out) else None,
             "file": r["file"],
+            # appended later: what tells runs of one model and configuration apart
+            "seed": f.get("seed", 0), "thinking": thinking_setting(r["identity"]),
         })
-    return pd.DataFrame(rows).sort_values(["scenario", "model", "temperature", "loops"])
+    return pd.DataFrame(rows).sort_values(["scenario", "model", "temperature", "loops"], kind="stable")
 
 
 # ------------------------------------------------------------------------------------ FF3

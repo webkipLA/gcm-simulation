@@ -79,4 +79,23 @@ def available_connectors(
     return out
 
 
-__all__ = ["ENV_VARIABLES", "FROM_ENV", "GEMINI_THINKING_LEVELS", "available_connectors"]
+def thinking_setting(identity: dict) -> str:
+    """The thinking setting a connector sends, read from its identity (and so from the cache key)."""
+    if identity.get("thinking_level") is not None:
+        return f"level={identity['thinking_level']}"
+    if identity.get("thinking_budget") is not None:
+        return f"budget={identity['thinking_budget']}"
+    if identity.get("think") is not None:
+        return f"think={'true' if identity['think'] else 'false'}"
+    if identity.get("connector") in ("gemini", "ollama"):
+        return "model default"
+    return ""
+
+
+__all__ = [
+    "ENV_VARIABLES",
+    "FROM_ENV",
+    "GEMINI_THINKING_LEVELS",
+    "available_connectors",
+    "thinking_setting",
+]

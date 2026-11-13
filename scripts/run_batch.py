@@ -102,7 +102,7 @@ import numpy as np
 from gcm.contextual import aggregate as agg
 from gcm.contextual.cache import DiskCache
 from gcm.contextual.connectors import MockConnector, available_connectors
-from gcm.contextual.connectors.registry import FROM_ENV, GEMINI_THINKING_LEVELS
+from gcm.contextual.connectors.registry import FROM_ENV, GEMINI_THINKING_LEVELS, thinking_setting
 from gcm.contextual.experiment import ExperimentConfig, n_calls, run_experiment
 from gcm.contextual.paths import cache_dir, data_dir, runs_dir, structures_dir
 from gcm.contextual.references import reference_matrices
@@ -182,19 +182,6 @@ def pick_connector(name: str | None, thinking_level: str | None = None, ollama_t
     if len(ollama) != 1:
         sys.exit(f"pass --connector, configured: {sorted(factories) or 'none (check .env)'}")
     return ollama[0], factories[ollama[0]]
-
-
-def thinking_setting(identity: dict) -> str:
-    """The thinking setting a connector sends, read from its identity (and so from the cache key)."""
-    if identity.get("thinking_level") is not None:
-        return f"level={identity['thinking_level']}"
-    if identity.get("thinking_budget") is not None:
-        return f"budget={identity['thinking_budget']}"
-    if identity.get("think") is not None:
-        return f"think={'true' if identity['think'] else 'false'}"
-    if identity.get("connector") in ("gemini", "ollama"):
-        return "model default"
-    return ""
 
 
 def git_commit() -> str:
