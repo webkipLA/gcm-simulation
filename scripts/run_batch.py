@@ -132,7 +132,7 @@ def summary_row(stage, scenario, cfg, result, connector_name) -> dict:
     }
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--stages", nargs="+", default=["core", "det", "audit"],
                     choices=["core", "det", "audit", "university"])
@@ -146,7 +146,7 @@ def main() -> None:
     ap.add_argument("--audit", nargs="+", default=None, metavar="FACTOR=LEVEL",
                     help=f"subset of the audit, e.g. representation=role_list perspective=persona; "
                          f"default all: {' '.join(f'{n}={l}' for n, l in AUDIT)}")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
 
     stages = list(args.stages) + (["university"] if args.university and "university" not in args.stages else [])
     scenarios = load_scenarios()
