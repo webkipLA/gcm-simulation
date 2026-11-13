@@ -8,6 +8,7 @@ changed key the answers on disk would silently be asked again.
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import importlib.util
 from dataclasses import replace
@@ -15,9 +16,9 @@ from pathlib import Path
 
 import pytest
 
-from gcm.contextual.cache import request_key
-from gcm.contextual.connectors import GeminiConnector
-from gcm.contextual.experiment import plan_calls
+from gcm.contextual.cache import DiskCache, request_key
+from gcm.contextual.connectors import GeminiConnector, MockConnector
+from gcm.contextual.experiment import plan_calls, run_experiment
 from gcm.contextual.scenario import load_scenarios
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -61,6 +62,11 @@ def keys_of(jobs, scenarios, identity) -> list[str]:
 
 def digest(keys: list[str]) -> str:
     return hashlib.sha256("".join(keys).encode()).hexdigest()
+
+
+def read_summary(path: Path) -> list[dict]:
+    with path.open(newline="", encoding="utf-8") as fh:
+        return list(csv.DictReader(fh))
 
 
 # ---------------------------------------------------------------------- existing configurations
@@ -320,3 +326,119 @@ def test_dry_run_of_the_new_stages(rb, data, capsys):
     lines = capsys.readouterr().out.splitlines()
     assert len(lines) == 1 + 18 + 3 + 1
     assert lines[-1] == "total 510 calls, 510 still to ask"  # 6 * 3 * 20 + 3 * 50
+
+
+# ------------------------------------------------------------------- thinking settings (flags)
+NOWHERE = "http://127.0.0.1:9"  # a request that slipped through would be refused locally
+
+
+class _As(MockConnector):
+    """A Mock that files its answers under the identity of another connector."""
+
+    def __init__(self, *args, identity: dict, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._identity = identity
+
+    def identity(self) -> dict:
+        return self._identity
+
+
+def fill_cache(data: Path, jobs, scenarios, identity: dict) -> None:
+    cache = DiskCache(data / "llm_cache")
+    for _, sid, cfg in jobs:
+        s = scenarios[sid]
+        run_experiment(s, cfg, _As.for_scenario(s, identity=identity), cache=cache)
+
+
+@pytest.fixture
+def gemini_env(data, monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    monkeypatch.setenv("GEMINI_MODEL", "m-1")
+    monkeypatch.setenv("GEMINI_BASE_URL", NOWHERE)
+    monkeypatch.setenv("GEMINI_THINKING_LEVEL", "minimal")
+    return data
+
+
+def test_thinking_level_flag_takes_precedence_over_the_environment(rb, gemini_env, monkeypatch):
+    def identity(**kw):
+        return rb.pick_connector("gemini/m-1", **kw)[1]().identity()
+
+    assert identity()["thinking_level"] == "minimal"  # from the environment, as before
+    assert identity(thinking_level="low")["thinking_level"] == "low"
+    assert "thinking_level" not in identity(thinking_level="default")
+    # the flag also replaces a thinking budget, which cannot be combined with a level
+    monkeypatch.setenv("GEMINI_THINKING_LEVEL", "")
+    monkeypatch.setenv("GEMINI_THINKING_BUDGET", "0")
+    assert identity()["thinking_budget"] == 0
+    assert identity(thinking_level="high") == {
+        "connector": "gemini", "model": "m-1", "thinking_budget": None, "thinking_level": "high",
+    }
+
+
+def test_thinking_level_is_part_of_the_cache_identity_and_of_the_summary(rb, gemini_env, scenarios, capsys):
+    """Answers filed under level low are found with --thinking-level low only."""
+    low = {"connector": "gemini", "model": "m-1", "thinking_budget": None, "thinking_level": "low"}
+    jobs = rb.plan(["core"], replace(rb.MAIN, mode="per_row", loops=2), rb.AUDIT, 2, ["reference_specialized"])
+    fill_cache(gemini_env, jobs, scenarios, low)
+    common = ["--connector", "gemini/m-1", "--mode", "per_row", "--stages", "core", "--core-loops", "2",
+              "--scenarios", "reference_specialized"]
+
+    rb.main([*common, "--dry-run"])  # .env says minimal
+    assert capsys.readouterr().out.splitlines()[-1] == "total 20 calls, 20 still to ask"
+    rb.main([*common, "--dry-run", "--thinking-level", "default"])
+    assert capsys.readouterr().out.splitlines()[-1] == "total 20 calls, 20 still to ask"
+    rb.main([*common, "--dry-run", "--thinking-level", "low"])
+    out = capsys.readouterr().out.splitlines()
+    assert out[0] == "connector: gemini/m-1  mode: per_row  thinking: low"
+    assert out[-1] == "total 20 calls, 0 still to ask"
+
+    rb.main([*common, "--thinking-level", "low"])  # everything is cached, so no request is made
+    assert names(gemini_env / "batch") == ["summary__gemini-m-1__think-low.csv"]
+    assert all(n.endswith("-think-low.json") for n in names(gemini_env / "structures" / "batch"))
+    row = read_summary(gemini_env / "batch" / "summary__gemini-m-1__think-low.csv")[0]
+    assert row["thinking"] == "level=low" and row["new_calls"] == "0" and row["errors"] == "0"
+
+
+def test_ollama_think_flag_overrides_the_environment_and_is_recorded(rb, data, scenarios, monkeypatch, capsys):
+    monkeypatch.setenv("OLLAMA_MODEL", "q:4b")
+    monkeypatch.setenv("OLLAMA_URL", NOWHERE)
+    monkeypatch.setenv("OLLAMA_THINK", "true")
+
+    def identity(**kw):
+        return rb.pick_connector("ollama/q:4b", **kw)[1]().identity()
+
+    assert identity()["think"] is True
+    assert identity(ollama_think="false")["think"] is False
+    jobs = rb.plan(["core"], replace(rb.MAIN, mode="per_row", loops=1), rb.AUDIT, 2, ["reference_unsegmented"])
+    fill_cache(data, jobs, scenarios, identity(ollama_think="false"))
+    common = ["--connector", "ollama/q:4b", "--mode", "per_row", "--stages", "core", "--core-loops", "1",
+              "--scenarios", "reference_unsegmented"]
+    rb.main([*common, "--dry-run"])
+    assert capsys.readouterr().out.splitlines()[-1] == "total 10 calls, 10 still to ask"
+    rb.main([*common, "--ollama-think", "false"])
+    row = read_summary(data / "batch" / "summary__ollama-q-4b__think-false.csv")[0]
+    assert row["thinking"] == "think=false" and row["new_calls"] == "0"
+
+
+def test_thinking_setting_names_what_the_connector_sends(rb):
+    f = rb.thinking_setting
+    assert f({"connector": "gemini", "model": "m", "thinking_budget": None}) == "model default"
+    assert f({"connector": "gemini", "model": "m", "thinking_budget": 0}) == "budget=0"
+    assert f({"connector": "gemini", "model": "m", "thinking_budget": None, "thinking_level": "low"}) == "level=low"
+    assert f({"connector": "ollama", "model": "m", "url": "u"}) == "model default"
+    assert f({"connector": "ollama", "model": "m", "url": "u", "think": False}) == "think=false"
+    assert f({"connector": "university", "model": "m"}) == "" == f({"connector": "mock"})
+
+
+def test_thinking_flags_are_rejected_for_other_connectors(rb, gemini_env, monkeypatch):
+    monkeypatch.setenv("OLLAMA_MODEL", "q:4b")
+    for argv in (
+        ["--connector", "mock", "--thinking-level", "low"],
+        ["--connector", "mock", "--ollama-think", "true"],
+        ["--connector", "ollama/q:4b", "--thinking-level", "low"],
+        ["--connector", "gemini/m-1", "--ollama-think", "true"],
+    ):
+        with pytest.raises(SystemExit, match="appl"):
+            rb.main([*argv, "--dry-run"])
+    with pytest.raises(SystemExit):
+        rb.main(["--connector", "gemini/m-1", "--thinking-level", "maximal", "--dry-run"])

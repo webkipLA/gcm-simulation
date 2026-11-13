@@ -22,6 +22,13 @@ pairwise, reason on, importance off, seed 0.
 
 --scenarios restricts the core, det and audit stages to some of the three reference scenarios.
 
+--thinking-level LEVEL sets the thinking level of a Gemini connector for this run and takes
+precedence over GEMINI_THINKING_LEVEL and GEMINI_THINKING_BUDGET in .env ("default" sends no
+thinking setting, so the model decides). --ollama-think true|false does the same for OLLAMA_THINK.
+The setting is part of the connector identity and therefore of every cache key: answers obtained
+with different settings are never mixed. Runs with one of these flags write to their own files
+(..__think-<value>). The setting actually used is in the column "thinking" of the summary.
+
 --seed N sets the base seed from which the seed of every call and the shuffled item orders are
 derived. Seed 0 is the default and gives the requests that have been asked so far; any other seed
 gives new requests and writes to its own files (..__seed<N>), so nothing is overwritten.
@@ -41,6 +48,8 @@ Usage (from the repository root):
   uv run python scripts/run_batch.py --mode per_row --stages audit --scenarios reference_hierarchical
   uv run python scripts/run_batch.py --mode per_row --stages university_audit --audit item_order=shuffled
   uv run python scripts/run_batch.py --mode per_row --stages university_np
+  uv run python scripts/run_batch.py --connector gemini/<model> --mode per_row --stages core --thinking-level low
+  uv run python scripts/run_batch.py --connector ollama/qwen3:4b --mode per_row --stages core --ollama-think false
 
 Output:
   data/llm_runs/*.jsonl                 raw answers, one file per complete configuration
@@ -64,6 +73,7 @@ import numpy as np
 from gcm.contextual import aggregate as agg
 from gcm.contextual.cache import DiskCache
 from gcm.contextual.connectors import MockConnector, available_connectors
+from gcm.contextual.connectors.registry import FROM_ENV, GEMINI_THINKING_LEVELS
 from gcm.contextual.experiment import ExperimentConfig, n_calls, run_experiment
 from gcm.contextual.paths import cache_dir, data_dir, runs_dir, structures_dir
 from gcm.contextual.references import reference_matrices
@@ -121,10 +131,18 @@ def plan(
     return jobs
 
 
-def pick_connector(name: str | None):
+def pick_connector(name: str | None, thinking_level: str | None = None, ollama_think: str | None = None):
+    """Name and factory of the connector. ``thinking_level`` (a Gemini level or "default") and
+    ``ollama_think`` ("true"/"false") override the settings of the environment."""
     if name == "mock":
+        if thinking_level is not None or ollama_think is not None:
+            sys.exit("--thinking-level and --ollama-think do not apply to the mock connector")
         return "mock", None
-    factories = available_connectors()
+    factories = available_connectors(
+        gemini_thinking_level=FROM_ENV if thinking_level is None
+        else None if thinking_level == "default" else thinking_level,
+        ollama_think=FROM_ENV if ollama_think is None else ollama_think == "true",
+    )
     if name:
         if name not in factories:
             sys.exit(f"connector {name!r} not configured; available: {sorted(factories) or 'none (check .env)'}")
@@ -133,6 +151,19 @@ def pick_connector(name: str | None):
     if len(ollama) != 1:
         sys.exit(f"pass --connector, configured: {sorted(factories) or 'none (check .env)'}")
     return ollama[0], factories[ollama[0]]
+
+
+def thinking_setting(identity: dict) -> str:
+    """The thinking setting a connector sends, read from its identity (and so from the cache key)."""
+    if identity.get("thinking_level") is not None:
+        return f"level={identity['thinking_level']}"
+    if identity.get("thinking_budget") is not None:
+        return f"budget={identity['thinking_budget']}"
+    if identity.get("think") is not None:
+        return f"think={'true' if identity['think'] else 'false'}"
+    if identity.get("connector") in ("gemini", "ollama"):
+        return "model default"
+    return ""
 
 
 def summary_row(stage, scenario, cfg, result, connector_name) -> dict:
@@ -165,6 +196,8 @@ def summary_row(stage, scenario, cfg, result, connector_name) -> dict:
         "kappa_expected": round(kappa, 3) if not np.isnan(kappa) else "",
         "template_hash": result.template_hash,
         "config_hash": cfg.config_hash,
+        # appended later; the columns above keep their names and their order
+        "thinking": thinking_setting(result.identity),
     }
 
 
@@ -182,6 +215,11 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--scenarios", nargs="+", default=None, choices=REFERENCE, metavar="NAME",
                     help=f"reference scenarios of the core, det and audit stages, e.g. --scenarios "
                          f"reference_hierarchical; default all: {' '.join(REFERENCE)}")
+    ap.add_argument("--thinking-level", choices=[*GEMINI_THINKING_LEVELS, "default"], default=None, metavar="LEVEL",
+                    help=f"Gemini only: {', '.join(GEMINI_THINKING_LEVELS)} or default (= no thinking setting); "
+                         "overrides GEMINI_THINKING_LEVEL/_BUDGET of .env, e.g. --thinking-level low")
+    ap.add_argument("--ollama-think", choices=["true", "false"], default=None,
+                    help="Ollama only: overrides OLLAMA_THINK of .env, e.g. --ollama-think false")
     ap.add_argument("--seed", type=int, default=0, metavar="N",
                     help="base seed of all stages (default 0 = the runs made so far); other seeds write to "
                          "files with the suffix __seed<N>, e.g. --seed 1")
@@ -200,14 +238,21 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit("--seed must not be negative")
     main_cfg = replace(MAIN, mode=args.mode, loops=args.core_loops, seed=args.seed)
     jobs = plan(stages, main_cfg, audit, args.side_loops, args.scenarios)
-    connector_name, factory = pick_connector(args.connector)
+    connector_name, factory = pick_connector(args.connector, args.thinking_level, args.ollama_think)
+    if args.thinking_level is not None and not connector_name.startswith("gemini/"):
+        sys.exit(f"--thinking-level applies to gemini/<model> connectors only, not to {connector_name}")
+    if args.ollama_think is not None and not connector_name.startswith("ollama/"):
+        sys.exit(f"--ollama-think applies to ollama/<model> connectors only, not to {connector_name}")
+    override = args.thinking_level if args.thinking_level is not None else args.ollama_think
     cache = DiskCache(cache_dir())
     out_dir = data_dir() / "batch"
     out_dir.mkdir(parents=True, exist_ok=True)
     struct_dir = structures_dir() / "batch"
     slug = re.sub(r"[^A-Za-z0-9.]+", "-", connector_name).strip("-")
-    # seed 0 keeps the file names used so far; any other seed gets its own files
-    suffix = f"__seed{args.seed}" if args.seed else ""
+    # Without the new flags the file names are the ones used so far. A thinking setting given on
+    # the command line and a seed other than 0 get their own files, because the names of the
+    # summary and of the structures carry neither the connector identity nor the seed otherwise.
+    suffix = (f"__think-{override}" if override is not None else "") + (f"__seed{args.seed}" if args.seed else "")
     summary_path = out_dir / f"summary__{slug}{suffix}.csv"  # one file per connector, so runs can go in parallel
 
     def make(scenario, cfg):
@@ -217,7 +262,9 @@ def main(argv: list[str] | None = None) -> None:
 
     # plan with cache status
     total = missing = 0
-    print(f"connector: {connector_name}  mode: {args.mode}" + (f"  seed: {args.seed}" if args.seed else ""))
+    print(f"connector: {connector_name}  mode: {args.mode}"
+          + (f"  thinking: {override}" if override is not None else "")
+          + (f"  seed: {args.seed}" if args.seed else ""))
     for stage, sid, cfg in jobs:
         s = scenarios[sid]
         res = run_experiment(s, cfg, make(s, cfg), cache=cache, cache_only=True)
