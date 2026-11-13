@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import httpx
 
-from gcm.contextual.connectors.base import ConnectorError, TransientError
+from gcm.contextual.connectors.base import ConfigurationError, ConnectorError, TransientError
 
 RETRY_STATUS = {408, 409, 425, 429, 500, 502, 503, 504}
 
@@ -22,6 +22,12 @@ def post_json(client: httpx.Client, url: str, payload: dict, headers: dict | Non
         raise TransientError(
             f"HTTP {response.status_code}: {response.text[:200]}",
             retry_after_s=float(retry_after) if retry_after and retry_after.isdigit() else None,
+        )
+    if 400 <= response.status_code < 500:
+        raise ConfigurationError(
+            f"HTTP {response.status_code}: {response.text[:300]}",
+            status=response.status_code,
+            body=response.text,
         )
     if response.status_code >= 400:
         raise ConnectorError(f"HTTP {response.status_code}: {response.text[:300]}")

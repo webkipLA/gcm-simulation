@@ -214,8 +214,9 @@ class RunResult:
     n_planned: int
     n_cached: int = 0
     n_new: int = 0
-    n_missing: int = 0  # planned but neither cached nor run (cache_only)
+    n_missing: int = 0  # planned but neither cached nor run (cache_only, or stopped early)
     log_path: Path | None = None
+    config_error: str | None = None  # server message of the refusal that stopped the run
 
     @property
     def complete(self) -> bool:
@@ -292,6 +293,7 @@ def run_experiment(
     log_dir: str | Path | None = None,
     cache_only: bool = False,
     progress: Callable[[int, int], None] | None = None,
+    stop_on_config_error: bool = False,
 ) -> RunResult:
     """Run one configuration with one connector.
 
@@ -299,6 +301,11 @@ def run_experiment(
     to the connector's concurrency limit. With ``cache_only=True`` no call is issued at all and
     ``n_missing`` tells how many would be needed. When all calls are answered and ``log_dir`` is
     given, the records are written as one JSONL file.
+
+    With ``stop_on_config_error=True`` the run ends at the first call the server refuses as such
+    (:class:`~gcm.contextual.connectors.base.ConfigurationError`, HTTP 4xx other than the retried
+    statuses). The first open call is then issued alone, so that a wrong setting costs one call.
+    ``config_error`` holds the server message, and the calls not issued count as ``n_missing``.
     """
     requests = plan_calls(scenario, config)
     identity = connector.identity()
@@ -338,17 +345,33 @@ def run_experiment(
             cache.put(keys[i], stored)
         return i, stored
 
+    def refusal():
+        return getattr(connector, "config_error", None) if stop_on_config_error else None
+
+    def issue_unless_refused(i: int) -> tuple[int, dict | None]:
+        return (i, None) if refusal() is not None else issue(i)
+
     if cache_only:
         result.n_missing = len(todo)
     elif todo:
-        workers = max(1, min(connector.limits.max_concurrency, len(todo)))
+        if stop_on_config_error and hasattr(connector, "config_error"):
+            connector.config_error = None  # of this run, not of an earlier one
+        answered = [issue(todo[0])] if stop_on_config_error else []
+        rest = todo[len(answered) :]
+        workers = max(1, min(connector.limits.max_concurrency, len(rest) or 1))
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            for i, stored in pool.map(issue, todo):
+            for i, stored in itertools.chain(answered, pool.map(issue_unless_refused, rest)):
+                if stored is None:
+                    result.n_missing += 1
+                    continue
                 records[i] = _record(requests[i], identity, keys[i], stored, cached=False)
                 result.n_new += 1
                 done += 1
                 if progress:
                     progress(done, len(requests))
+        if refusal() is not None:
+            exc = refusal()
+            result.config_error = f"HTTP {exc.status}: {exc.body}" if exc.body else str(exc)
     result.records = [r for r in records if r is not None]
     if log_dir is not None and result.complete:
         path = Path(log_dir) / log_name(scenario.id, identity, config)

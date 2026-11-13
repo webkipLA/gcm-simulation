@@ -37,6 +37,12 @@ Every answered call is stored in the disk cache at once, so the script can be st
 and restarted at any time; nothing is asked twice. Calls already made in the notebook with the same
 settings are reused as well (for example the first loops of a notebook run).
 
+A request that the server refuses as such (HTTP 4xx other than 408, 409, 425 and 429, for example
+a thinking level the model does not accept, a wrong key or an unknown model) stops the script
+after that one call and prints the server message in full. Rate limits (429), server errors (5xx)
+and timeouts are retried and counted as before. --no-fail-fast restores the old behaviour, in
+which every call of the configuration was tried before the script stopped.
+
 Usage (from the repository root):
 
   uv run python scripts/run_batch.py --dry-run            # plan, cached vs. missing calls, no model call
@@ -50,6 +56,7 @@ Usage (from the repository root):
   uv run python scripts/run_batch.py --mode per_row --stages university_np
   uv run python scripts/run_batch.py --connector gemini/<model> --mode per_row --stages core --thinking-level low
   uv run python scripts/run_batch.py --connector ollama/qwen3:4b --mode per_row --stages core --ollama-think false
+  uv run python scripts/run_batch.py --no-fail-fast       # try every call even after an HTTP 4xx refusal
 
 Output:
   data/llm_runs/*.jsonl                 raw answers, one file per complete configuration
@@ -220,6 +227,8 @@ def main(argv: list[str] | None = None) -> None:
                          "overrides GEMINI_THINKING_LEVEL/_BUDGET of .env, e.g. --thinking-level low")
     ap.add_argument("--ollama-think", choices=["true", "false"], default=None,
                     help="Ollama only: overrides OLLAMA_THINK of .env, e.g. --ollama-think false")
+    ap.add_argument("--no-fail-fast", action="store_true",
+                    help="do not stop at the first call the server refuses with HTTP 4xx (the behaviour before)")
     ap.add_argument("--seed", type=int, default=0, metavar="N",
                     help="base seed of all stages (default 0 = the runs made so far); other seeds write to "
                          "files with the suffix __seed<N>, e.g. --seed 1")
@@ -289,8 +298,14 @@ def main(argv: list[str] | None = None) -> None:
                 _last[0] = time.time()
                 print(f"    {k}/{n}", flush=True)
 
-        res = run_experiment(s, cfg, make(s, cfg), cache=cache, log_dir=runs_dir(), progress=progress)
+        res = run_experiment(s, cfg, make(s, cfg), cache=cache, log_dir=runs_dir(), progress=progress,
+                             stop_on_config_error=not args.no_fail_fast)
         done += res.n_new
+        if res.config_error is not None:
+            sys.exit(f"the server refused a request of {stage} {sid} as such; stopping after {res.n_new} new "
+                     f"call(s), {res.n_missing} not asked. This is a configuration error (model name, key, "
+                     f"thinking level, output format), not a quota or a server problem. "
+                     f"Answers so far are cached.\nServer message:\n{res.config_error}")
         rows.append(summary_row(stage, s, cfg, res, connector_name))
         if res.n_errors:
             print(f"    {res.n_errors} failed calls (not cached, asked again on the next start)")

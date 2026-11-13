@@ -14,11 +14,19 @@ import importlib.util
 from dataclasses import replace
 from pathlib import Path
 
+import httpx
 import pytest
 
 from gcm.contextual.cache import DiskCache, request_key
-from gcm.contextual.connectors import GeminiConnector, MockConnector
-from gcm.contextual.experiment import plan_calls, run_experiment
+from gcm.contextual.connectors import (
+    ConfigurationError,
+    ConnectorLimits,
+    GeminiConnector,
+    MockConnector,
+    TransientError,
+)
+from gcm.contextual.connectors.http import post_json
+from gcm.contextual.experiment import ExperimentConfig, plan_calls, run_experiment
 from gcm.contextual.scenario import load_scenarios
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -442,3 +450,121 @@ def test_thinking_flags_are_rejected_for_other_connectors(rb, gemini_env, monkey
             rb.main([*argv, "--dry-run"])
     with pytest.raises(SystemExit):
         rb.main(["--connector", "gemini/m-1", "--thinking-level", "maximal", "--dry-run"])
+
+
+# ---------------------------------------------------------------- fail fast on HTTP 4xx
+LONG_MESSAGE = '{"error": {"code": 400, "message": "Thinking level MINIMAL is not supported by this model. ' + (
+    "Supported levels are listed in the documentation. " * 12
+) + 'END-OF-SERVER-MESSAGE", "status": "INVALID_ARGUMENT"}}'
+
+
+class Server:
+    """A fake HTTP transport that answers every request with the same status and counts them."""
+
+    def __init__(self, status: int, body: str = LONG_MESSAGE):
+        self.status, self.body, self.calls = status, body, 0
+
+    def transport(self) -> httpx.MockTransport:
+        def handler(request: httpx.Request) -> httpx.Response:
+            self.calls += 1
+            return httpx.Response(self.status, text=self.body)
+
+        return httpx.MockTransport(handler)
+
+    def gemini(self) -> GeminiConnector:
+        return GeminiConnector(
+            model="m-1", api_key="k", transport=self.transport(), base_url=NOWHERE,
+            limits=ConnectorLimits(max_retries=1, backoff_s=0.0, max_concurrency=4),
+        )
+
+
+@pytest.mark.parametrize("status", [400, 401, 403, 404, 422])
+def test_http_4xx_is_a_configuration_error_with_the_full_message(status):
+    server = Server(status)
+    with pytest.raises(ConfigurationError) as info:
+        post_json(httpx.Client(transport=server.transport()), "http://x/y", {})
+    assert info.value.status == status and info.value.body == LONG_MESSAGE
+    assert str(info.value) == f"HTTP {status}: {LONG_MESSAGE[:300]}"  # the short text, as before
+
+
+@pytest.mark.parametrize("status", [408, 409, 425, 429, 500, 502, 503, 504])
+def test_retried_statuses_are_not_configuration_errors(status):
+    with pytest.raises(TransientError):
+        post_json(httpx.Client(transport=Server(status).transport()), "http://x/y", {})
+
+
+def test_runner_stops_at_the_first_refused_call_only_when_asked_to(scenarios):
+    s = scenarios["reference_hierarchical"]
+    cfg = replace(ExperimentConfig(s.id), mode="per_row", loops=3)
+
+    server = Server(400)
+    result = run_experiment(s, cfg, server.gemini(), stop_on_config_error=True)
+    assert server.calls == 1  # one call, no retry
+    assert (result.n_new, result.n_errors, result.n_missing) == (1, 1, 29) and not result.complete
+    assert result.config_error == f"HTTP 400: {LONG_MESSAGE}"
+
+    server = Server(400)
+    result = run_experiment(s, cfg, server.gemini())  # the default of the runner is unchanged
+    assert server.calls == 30 and result.n_errors == 30 and result.n_missing == 0
+    assert result.config_error is None
+
+    for status in (429, 503):  # retried once per call here, never a reason to stop early
+        server = Server(status)
+        result = run_experiment(s, cfg, server.gemini(), stop_on_config_error=True)
+        assert server.calls == 60 and result.n_errors == 30 and result.config_error is None
+
+
+def test_runner_stops_when_the_refusal_comes_later(scenarios):
+    """Answers before the refusal are kept and cached; nothing is asked after it."""
+    s = scenarios["reference_hierarchical"]
+    cfg = replace(ExperimentConfig(s.id), mode="per_row", loops=3)
+
+    class Revoked(MockConnector):
+        calls = 0
+
+        def _call(self, system, user, temperature, seed, schema, meta):
+            type(self).calls += 1
+            if type(self).calls > 5:
+                raise ConfigurationError("HTTP 403: key revoked", 403, "key revoked")
+            return super()._call(system, user, temperature, seed, schema, meta)
+
+    connector = Revoked.for_scenario(s, limits=ConnectorLimits(max_concurrency=1, max_retries=0))
+    result = run_experiment(s, cfg, connector, stop_on_config_error=True)
+    assert Revoked.calls == 6 and result.n_new == 6 and result.n_errors == 1 and result.n_missing == 24
+    assert result.config_error == "HTTP 403: key revoked"
+
+
+def batch_with(rb, monkeypatch, server: Server):
+    monkeypatch.setattr(rb, "pick_connector", lambda *a, **k: ("gemini/m-1", server.gemini))
+
+
+COMMON = ["--mode", "per_row", "--stages", "core", "--core-loops", "2"]
+
+
+def test_batch_stops_after_the_first_http_400_and_prints_the_whole_message(rb, data, monkeypatch, capsys):
+    server = Server(400)
+    batch_with(rb, monkeypatch, server)
+    with pytest.raises(SystemExit) as info:
+        rb.main(COMMON)
+    message = str(info.value)
+    assert server.calls == 1
+    assert LONG_MESSAGE in message and "END-OF-SERVER-MESSAGE" in message and len(LONG_MESSAGE) > 600
+    assert "stopping after 1 new call(s), 19 not asked" in message
+    assert names(data / "batch") == [] and names(data / "llm_cache") == []
+
+
+def test_no_fail_fast_restores_the_previous_behaviour(rb, data, monkeypatch, capsys):
+    server = Server(400)
+    batch_with(rb, monkeypatch, server)
+    with pytest.raises(SystemExit, match="every new call of this configuration failed"):
+        rb.main([*COMMON, "--no-fail-fast"])
+    assert server.calls == 20  # every call of the first configuration, none of the second
+
+
+@pytest.mark.parametrize("status", [429, 500])
+def test_rate_limits_and_server_errors_are_handled_as_before(rb, data, monkeypatch, status):
+    server = Server(status)
+    batch_with(rb, monkeypatch, server)
+    with pytest.raises(SystemExit, match="every new call of this configuration failed"):
+        rb.main(COMMON)
+    assert server.calls == 40  # 20 calls, each retried once

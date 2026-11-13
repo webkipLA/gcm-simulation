@@ -83,6 +83,20 @@ class ConnectorError(Exception):
     """A failure that a retry will not fix (bad request, missing key, unknown model)."""
 
 
+class ConfigurationError(ConnectorError):
+    """The server refused the request as such: HTTP 4xx other than the statuses that are retried.
+
+    Such a response says that the configuration is wrong (a parameter the model does not accept,
+    a wrong key, an unknown model), so every further call of the run would fail the same way.
+    ``body`` holds the server message in full; the text of the exception is shortened.
+    """
+
+    def __init__(self, message: str, status: int | None = None, body: str = "") -> None:
+        super().__init__(message)
+        self.status = status
+        self.body = body
+
+
 class RateLimiter:
     """Spaces request starts so that at most ``requests_per_minute`` are issued."""
 
@@ -118,6 +132,9 @@ class BaseConnector:
     """
 
     name = "base"
+    #: the first :class:`ConfigurationError` a call ran into. ``complete`` still returns a
+    #: Completion with ``error`` set; the runner reads this to stop a run that cannot succeed.
+    config_error: ConfigurationError | None = None
 
     def __init__(
         self,
@@ -173,6 +190,8 @@ class BaseConnector:
                 continue
             except ConnectorError as exc:
                 error = f"{type(exc).__name__}: {exc}"
+                if isinstance(exc, ConfigurationError) and self.config_error is None:
+                    self.config_error = exc
                 break
             except Exception as exc:  # noqa: BLE001  a bug in a connector must not abort a run
                 error = f"unexpected {type(exc).__name__}: {exc}"
@@ -198,6 +217,7 @@ class BaseConnector:
 __all__ = [
     "BaseConnector",
     "Completion",
+    "ConfigurationError",
     "Connector",
     "ConnectorError",
     "ConnectorLimits",

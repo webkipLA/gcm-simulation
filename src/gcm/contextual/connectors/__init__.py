@@ -3,6 +3,7 @@
 from gcm.contextual.connectors.base import (
     BaseConnector,
     Completion,
+    ConfigurationError,
     Connector,
     ConnectorError,
     ConnectorLimits,
@@ -18,6 +19,7 @@ from gcm.contextual.connectors.registry import available_connectors
 __all__ = [
     "BaseConnector",
     "Completion",
+    "ConfigurationError",
     "Connector",
     "ConnectorError",
     "ConnectorLimits",

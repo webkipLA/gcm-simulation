@@ -17,7 +17,12 @@ import os
 
 import httpx
 
-from gcm.contextual.connectors.base import BaseConnector, ConnectorError, ConnectorLimits
+from gcm.contextual.connectors.base import (
+    BaseConnector,
+    ConfigurationError,
+    ConnectorError,
+    ConnectorLimits,
+)
 from gcm.contextual.connectors.http import post_json
 
 
@@ -94,10 +99,13 @@ class OpenAICompatibleConnector(BaseConnector):
             )
         except ConnectorError as exc:
             if self.structured == "json_schema" and "response_format" in str(exc):
-                raise ConnectorError(
+                hint = (
                     f"{exc}; this server rejects json_schema output, configure the connector "
                     "with structured='json_object' (or UNI_API_STRUCTURED=json_object)"
-                ) from exc
+                )
+                if isinstance(exc, ConfigurationError):
+                    raise ConfigurationError(hint, exc.status, exc.body) from exc
+                raise ConnectorError(hint) from exc
             raise
         choices = data.get("choices") or []
         if not choices:
