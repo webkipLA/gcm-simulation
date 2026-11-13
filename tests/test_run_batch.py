@@ -191,3 +191,43 @@ def test_scenarios_keeps_the_order_and_the_requests_of_the_full_plan(rb, scenari
 def test_unknown_scenario_is_rejected(rb, data):
     with pytest.raises(SystemExit):
         rb.main(["--connector", "mock", "--dry-run", "--scenarios", "university_strong_power"])
+
+
+# --------------------------------------------------------------------------- university_audit
+def test_university_audit_applies_every_factor_to_the_three_variants(rb, scenarios):
+    main = replace(rb.MAIN, mode="per_row")
+    jobs = rb.plan(["university_audit"], main, rb.AUDIT, 2)
+    assert len(jobs) == len(rb.AUDIT) * 3
+    for (name, level), chunk in zip(rb.AUDIT, [jobs[i : i + 3] for i in range(0, 18, 3)], strict=True):
+        assert [sid for _, sid, _ in chunk] == rb.UNIVERSITY
+        for stage, sid, cfg in chunk:
+            assert stage == f"university_audit:{name}={level}"
+            # one factor away from the main configuration, with the side-loop count
+            assert cfg == replace(main, scenario_id=sid, loops=2, **{name: level})
+    # the same factors, loops and seeds as the audit of the reference scenarios
+    reference = rb.plan(["audit"], main, rb.AUDIT, 2)
+    strip = lambda js: [replace(cfg, scenario_id="") for _, _, cfg in js]  # noqa: E731
+    assert strip(jobs) == strip(reference)
+
+
+def test_university_audit_is_opt_in_and_respects_the_audit_selection(rb, data, capsys):
+    rb.main(["--connector", "mock", "--mode", "per_row", "--university", "--dry-run"])
+    assert "university_audit" not in capsys.readouterr().out
+
+    rb.main(["--connector", "mock", "--mode", "per_row", "--dry-run", "--stages", "university_audit",
+             "--audit", "item_order=shuffled", "--side-loops", "3"])
+    lines = capsys.readouterr().out.splitlines()
+    assert [line.split()[:2] for line in lines[1:-1]] == [
+        ["university_audit:item_order=shuffled", sid] for sid in rb.UNIVERSITY
+    ]
+    assert lines[-1] == "total 90 calls, 90 still to ask"
+
+
+def test_university_audit_runs_and_is_labelled_in_the_summary(rb, data, capsys):
+    rb.main(["--connector", "mock", "--mode", "per_row", "--stages", "university_audit",
+             "--audit", "language=de", "wording=b"])
+    rows = (data / "batch" / "summary__mock.csv").read_text().splitlines()
+    header = rows[0].split(",")
+    stages = [r.split(",")[header.index("stage")] for r in rows[1:]]
+    assert stages == ["university_audit:language=de"] * 3 + ["university_audit:wording=b"] * 3
+    assert len(names(data / "structures" / "batch")) == 6
