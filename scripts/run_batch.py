@@ -12,6 +12,10 @@ most important configurations complete:
 Main configuration = the notebook presets: prose, wording a, observer, canonical order, English,
 pairwise, reason on, importance off, seed 0.
 
+--seed N sets the base seed from which the seed of every call and the shuffled item orders are
+derived. Seed 0 is the default and gives the requests that have been asked so far; any other seed
+gives new requests and writes to its own files (..__seed<N>), so nothing is overwritten.
+
 Every answered call is stored in the disk cache at once, so the script can be stopped with Ctrl+C
 and restarted at any time; nothing is asked twice. Calls already made in the notebook with the same
 settings are reused as well (for example the first loops of a notebook run).
@@ -23,6 +27,7 @@ Usage (from the repository root):
   uv run python scripts/run_batch.py --stages core det    # selected stages
   uv run python scripts/run_batch.py --connector mock     # pipeline test without a model
   uv run python scripts/run_batch.py --mode per_row --audit representation=role_list perspective=persona
+  uv run python scripts/run_batch.py --mode per_row --stages core --seed 1   # a second, independent sample
 
 Output:
   data/llm_runs/*.jsonl                 raw answers, one file per complete configuration
@@ -143,6 +148,9 @@ def main(argv: list[str] | None = None) -> None:
                     help="per_row asks about all opportunities of a participant in one call (10x fewer calls)")
     ap.add_argument("--core-loops", type=int, default=5, help="loops of the core and university stages")
     ap.add_argument("--side-loops", type=int, default=2, help="loops of the det and audit stages")
+    ap.add_argument("--seed", type=int, default=0, metavar="N",
+                    help="base seed of all stages (default 0 = the runs made so far); other seeds write to "
+                         "files with the suffix __seed<N>, e.g. --seed 1")
     ap.add_argument("--audit", nargs="+", default=None, metavar="FACTOR=LEVEL",
                     help=f"subset of the audit, e.g. representation=role_list perspective=persona; "
                          f"default all: {' '.join(f'{n}={l}' for n, l in AUDIT)}")
@@ -154,7 +162,9 @@ def main(argv: list[str] | None = None) -> None:
     unknown = [a for a in audit if a not in AUDIT]
     if unknown:
         sys.exit(f"unknown audit levels {unknown}; choose from {AUDIT}")
-    main_cfg = replace(MAIN, mode=args.mode, loops=args.core_loops)
+    if args.seed < 0:
+        sys.exit("--seed must not be negative")
+    main_cfg = replace(MAIN, mode=args.mode, loops=args.core_loops, seed=args.seed)
     jobs = plan(stages, main_cfg, audit, args.side_loops)
     connector_name, factory = pick_connector(args.connector)
     cache = DiskCache(cache_dir())
@@ -162,7 +172,9 @@ def main(argv: list[str] | None = None) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     struct_dir = structures_dir() / "batch"
     slug = re.sub(r"[^A-Za-z0-9.]+", "-", connector_name).strip("-")
-    summary_path = out_dir / f"summary__{slug}.csv"  # one file per connector, so runs can go in parallel
+    # seed 0 keeps the file names used so far; any other seed gets its own files
+    suffix = f"__seed{args.seed}" if args.seed else ""
+    summary_path = out_dir / f"summary__{slug}{suffix}.csv"  # one file per connector, so runs can go in parallel
 
     def make(scenario, cfg):
         if factory is None:
@@ -171,7 +183,7 @@ def main(argv: list[str] | None = None) -> None:
 
     # plan with cache status
     total = missing = 0
-    print(f"connector: {connector_name}  mode: {args.mode}")
+    print(f"connector: {connector_name}  mode: {args.mode}" + (f"  seed: {args.seed}" if args.seed else ""))
     for stage, sid, cfg in jobs:
         s = scenarios[sid]
         res = run_experiment(s, cfg, make(s, cfg), cache=cache, cache_only=True)
@@ -212,7 +224,7 @@ def main(argv: list[str] | None = None) -> None:
                 agg.aggregate(res.records, s, label=cfg.label()), s, threshold=0.5,
                 on_missing="error", name=f"{connector_name} | {cfg.label()} | T={cfg.temperature}",
             )
-            name = re.sub(r"[^A-Za-z0-9.]+", "-", f"{sid}__{connector_name}__{cfg.config_hash}").strip("-")
+            name = re.sub(r"[^A-Za-z0-9.]+", "-", f"{sid}__{connector_name}__{cfg.config_hash}{suffix}").strip("-")
             export.save(struct_dir / f"{name}.json")
         except agg.UndeterminedCellsError as exc:
             print(f"    structure not exported: {exc}")

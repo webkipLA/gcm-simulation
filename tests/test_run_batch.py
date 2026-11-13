@@ -121,3 +121,46 @@ def test_dry_run_of_the_default_plan_prints_720_calls(rb, data, capsys):
     assert out.splitlines()[-1] == "total 720 calls, 720 still to ask"
     assert len(out.splitlines()) == 3 + 3 + 18 + 3 + 2
     assert not (data / "llm_cache").exists()
+
+
+# ------------------------------------------------------------------------------------- --seed
+def names(directory: Path) -> list[str]:
+    return sorted(p.name for p in directory.iterdir()) if directory.exists() else []
+
+
+def test_seed_zero_is_the_default_and_other_seeds_give_new_requests(rb, scenarios):
+    assert rb.MAIN.seed == 0
+    identity = {"connector": "x", "model": "y"}
+    main = replace(rb.MAIN, mode="per_row")
+    zero = keys_of(rb.plan(["core"], main, rb.AUDIT, 2), scenarios, identity)
+    one = keys_of(rb.plan(["core"], replace(main, seed=1), rb.AUDIT, 2), scenarios, identity)
+    assert len(zero) == len(one) == 150 and not set(zero) & set(one)
+
+
+def test_runs_with_different_seeds_write_to_different_files(rb, data, capsys):
+    common = ["--connector", "mock", "--mode", "per_row", "--stages", "core", "--core-loops", "2"]
+    rb.main(common)
+    default = {d: names(data / d) for d in ("batch", "structures/batch", "llm_runs")}
+    assert default["batch"] == ["summary__mock.csv"]
+    assert len(default["structures/batch"]) == len(default["llm_runs"]) == 3
+    assert not any("seed" in n for d in default.values() for n in d)
+
+    rb.main([*common, "--seed", "3"])
+    out = capsys.readouterr().out
+    assert "connector: mock  mode: per_row  seed: 3" in out
+    both = {d: names(data / d) for d in default}
+    assert both["batch"] == ["summary__mock.csv", "summary__mock__seed3.csv"]
+    for d in ("structures/batch", "llm_runs"):
+        new = set(both[d]) - set(default[d])
+        assert len(new) == 3 and all("seed3" in n for n in new)
+    rows = (data / "batch" / "summary__mock__seed3.csv").read_text().splitlines()
+    header = rows[0].split(",")
+    assert {r.split(",")[header.index("seed")] for r in rows[1:]} == {"3"}
+
+    rb.main([*common, "--seed", "0", "--dry-run"])  # explicit 0 = default: everything is cached
+    assert capsys.readouterr().out.splitlines()[-1] == "total 60 calls, 0 still to ask"
+
+
+def test_negative_seed_is_rejected(rb, data):
+    with pytest.raises(SystemExit, match="negative"):
+        rb.main(["--connector", "mock", "--seed", "-1", "--dry-run"])

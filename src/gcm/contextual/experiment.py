@@ -241,7 +241,9 @@ def _slug(text: str) -> str:
 def log_name(scenario_id: str, identity: dict, config: ExperimentConfig) -> str:
     id_hash = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:8]
     connector = _slug(f"{identity.get('connector', '')}-{identity.get('model', '')}")
-    return f"{scenario_id}__{connector}-{id_hash}__{config.config_hash}.jsonl"
+    # the hash already depends on the seed; a seed other than the default is also spelled out
+    seed = f"__seed{config.seed}" if config.seed else ""
+    return f"{scenario_id}__{connector}-{id_hash}__{config.config_hash}{seed}.jsonl"
 
 
 def _record(request: Request, identity: dict, key: str, stored: dict, cached: bool) -> dict:
