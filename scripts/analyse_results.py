@@ -23,8 +23,9 @@ Runs are selected by their factors, not by file names: Gemini = gemini-3.5-flash
 model = qwen3:4b; main configuration = prose, wording a, observer, canonical order, English,
 base seed 0. Runs of run_batch.py with another --seed, of the stages university_audit and
 university_np and of other models are listed in ff2_configs.csv (columns seed and thinking tell
-them apart) and are never used for the FF3 comparisons and the figures. If one model has run
-logs for the same configuration with two thinking settings, the script stops and names the files.
+them apart) and are never used for the FF3 comparisons and the figures. If the main model has run
+logs for one configuration with several thinking settings, the one of MAIN_THINKING (minimal) is
+used; for any other model the script stops and names the files.
 """
 
 from __future__ import annotations
@@ -49,6 +50,10 @@ from gcm.contextual.scenario import load_scenarios
 from gcm.contextual.structure_io import StructureExport
 
 GEMINI, QWEN = "gemini-3.5-flash-lite", "qwen3:4b"
+# The thinking setting of the runs of the thesis. When a model has run logs for one configuration
+# with several thinking settings, the comparisons and figures use this one; the others stay in
+# ff2_configs.csv, where the column thinking tells them apart.
+MAIN_THINKING = {GEMINI: "level=minimal"}
 MAIN = dict(representation="prose", wording="a", perspective="observer", item_order="canonical", language="en")
 METRICS = ["proportion_resolution", "proportion_flight_or_oversight", "problem_persistence", "problem_latency",
            "dm_velocity", "choice_persistence", "choices_not_made", "problems_not_solved"]
@@ -78,6 +83,8 @@ def pick(runs, model, scenario, **factors):
     want = {**MAIN, "seed": 0, **factors}  # seed 0 = the runs of the thesis; other seeds are extra samples
     hits = [r for r in runs if r["model"] == model and r["scen"].id == scenario
             and all(r["fac"].get(k) == v for k, v in want.items())]
+    if len(hits) > 1 and model in MAIN_THINKING:
+        hits = [r for r in hits if thinking_setting(r["identity"]) == MAIN_THINKING[model]] or hits
     if len(hits) != 1:
         found = "; ".join(f"{r['file']} ({thinking_setting(r['identity']) or 'no thinking setting'})" for r in hits)
         raise LookupError(f"{model} / {scenario} / {want}: {len(hits)} matching run logs"
@@ -118,7 +125,8 @@ def ff2_table(runs) -> pd.DataFrame:
             "permitted": int(b[known].sum()), "exact": bool(target is not None and known.all() and (b == target).all()),
             **{f"dist_{k}": round(v, 3) for k, v in dist.items()},
             "nearest": min(dist, key=dist.get), "kappa_expected": round(kappa, 3) if not np.isnan(kappa) else None,
-            "loop_agreement": round(float(((share == 0) | (share == 1))[known].mean()), 3),
+            # undefined for a run without a single valid answer (every call failed)
+            "loop_agreement": round(float(((share == 0) | (share == 1))[known].mean()), 3) if known.any() else np.nan,
             "rows_without_body": int((b.sum(axis=1) == 0).sum()), "bodies_without_row": int((b.sum(axis=0) == 0).sum()),
             "median_seconds": round(float(np.median([x["latency_s"] for x in ok])), 1) if ok else None,
             "tokens_in": round(float(np.mean([t for t in tok_in if t is not None])), 0) if any(t is not None for t in tok_in) else None,

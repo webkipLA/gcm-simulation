@@ -73,12 +73,14 @@ def test_main_run_is_found_next_to_other_seeds_and_the_new_stages(ar, logs, scen
 
 
 def test_two_thinking_settings_for_one_configuration_stop_the_analysis(ar, logs, scenarios):
-    a = logs("reference_hierarchical")
-    b = logs("reference_hierarchical", identity={**GEMINI, "thinking_level": "low"})
+    """For a model without a declared main setting the script cannot choose and says so."""
+    other = {"connector": "gemini", "model": "another-model", "thinking_budget": None, "thinking_level": "low"}
+    a = logs("reference_hierarchical", identity=other)
+    b = logs("reference_hierarchical", identity={**other, "thinking_level": "high"})
     with pytest.raises(LookupError) as info:
-        ar.pick(ar.load_runs(scenarios), ar.GEMINI, "reference_hierarchical", temperature=0.7, loops=5, mode="per_row")
+        ar.pick(ar.load_runs(scenarios), "another-model", "reference_hierarchical", temperature=0.7, loops=5, mode="per_row")
     message = str(info.value)
-    assert a in message and b in message and "level=minimal" in message and "level=low" in message
+    assert a in message and b in message and "level=low" in message and "level=high" in message
     with pytest.raises(LookupError, match="0 matching run logs$"):
         ar.pick(ar.load_runs(scenarios), ar.GEMINI, "reference_specialized", temperature=0.7, loops=5, mode="per_row")
 
@@ -110,3 +112,13 @@ def test_tokens_of_openai_compatible_servers_are_counted(ar, logs, scenarios, tm
     path.write_text("\n".join(json.dumps(r) for r in records) + "\n", encoding="utf-8")
     row = ar.ff2_table(ar.load_runs(scenarios)).iloc[0]
     assert (row["tokens_in"], row["tokens_out"], row["thinking"]) == (700, 40, "")
+
+
+def test_main_model_with_two_thinking_settings_uses_the_one_of_the_thesis(ar, logs, scenarios):
+    main = logs("university_strong_power")  # level=minimal
+    low = logs("university_strong_power", identity={**GEMINI, "thinking_level": "low"})
+    runs = ar.load_runs(scenarios)
+    hit = ar.pick(runs, ar.GEMINI, "university_strong_power", temperature=0.7, loops=5, mode="per_row")
+    assert hit["file"] == main != low
+    table = ar.ff2_table(runs)
+    assert sorted(table["thinking"]) == ["level=low", "level=minimal"]  # both stay in the table
