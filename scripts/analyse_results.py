@@ -26,6 +26,13 @@ university_np and of other models are listed in ff2_configs.csv (columns seed an
 them apart) and are never used for the FF3 comparisons and the figures. If the main model has run
 logs for one configuration with several thinking settings, the one of MAIN_THINKING (minimal) is
 used; for any other model the script stops and names the files.
+
+Further university conditions are analysed when their run logs exist and are skipped otherwise:
+the variants without the participation statement (stage university_np), the main model with
+thinking level low, and gemini-4-argon. Each is run through the FORTRAN port and compared with the
+rule-based form expected for its variant and with the main-model structure of the same variant.
+They get their own section in the report, their own CSV files (ff3_university_extra_*) and the
+figures abb_4_6 to abb_4_8; the existing outputs do not change.
 """
 
 from __future__ import annotations
@@ -50,6 +57,7 @@ from gcm.contextual.scenario import load_scenarios
 from gcm.contextual.structure_io import StructureExport
 
 GEMINI, QWEN = "gemini-3.5-flash-lite", "qwen3:4b"
+ARGON = "gemini-4-argon"
 # The thinking setting of the runs of the thesis. When a model has run logs for one configuration
 # with several thinking settings, the comparisons and figures use this one; the others stay in
 # ff2_configs.csv, where the column thinking tells them apart.
@@ -79,11 +87,15 @@ def load_runs(scenarios) -> list[dict]:
     return out
 
 
-def pick(runs, model, scenario, **factors):
+def pick(runs, model, scenario, thinking=None, **factors):
+    """The one run log of a model for a scenario and configuration. ``thinking`` names the
+    thinking setting when it is not the one of the thesis runs (e.g. "level=low")."""
     want = {**MAIN, "seed": 0, **factors}  # seed 0 = the runs of the thesis; other seeds are extra samples
     hits = [r for r in runs if r["model"] == model and r["scen"].id == scenario
             and all(r["fac"].get(k) == v for k, v in want.items())]
-    if len(hits) > 1 and model in MAIN_THINKING:
+    if thinking is not None:
+        hits = [r for r in hits if thinking_setting(r["identity"]) == thinking]
+    elif len(hits) > 1 and model in MAIN_THINKING:
         hits = [r for r in hits if thinking_setting(r["identity"]) == MAIN_THINKING[model]] or hits
     if len(hits) != 1:
         found = "; ".join(f"{r['file']} ({thinking_setting(r['identity']) or 'no thinking setting'})" for r in hits)
@@ -91,6 +103,16 @@ def pick(runs, model, scenario, **factors):
                           + (f": {found}. They differ in the connector settings only; keep the one that is meant "
                              f"in data/llm_runs" if hits else ""))
     return hits[0]
+
+
+def pick_optional(runs, model, scenario, thinking=None, **factors):
+    """Like pick, but None when no such run log exists (a condition that was not run)."""
+    try:
+        return pick(runs, model, scenario, thinking, **factors)
+    except LookupError as exc:
+        if " 0 matching run logs" in str(exc):
+            return None
+        raise
 
 
 def export_of(run, name):
@@ -220,7 +242,155 @@ def null_and_samples(exp_t07, n_null, workers, seed=2026) -> pd.DataFrame:
     return pd.DataFrame(res, index=[n for _, _, n in jobs])
 
 
+# ------------------------------------------------------------- further university conditions
+VARIANTS = (("strong", "stark", "hierarchical"), ("moderate", "mittel", "specialized"), ("weak", "schwach", "unsegmented"))
+EXTRA_GROUPS = (  # key, label in the report, model, scenario suffix, thinking setting
+    ("np", "ohne Teilnahmeaussage", GEMINI, "_no_participation", None),
+    ("low", "Hauptmodell, Denkstufe low", GEMINI, "", "level=low"),
+    ("argon", "gemini-4-argon", ARGON, "", "level=low"),
+)
+
+
+def extra_university_exports(runs) -> dict:
+    """Exports of the further university conditions that have a run log: {(group, variant): export}."""
+    out = {}
+    for group, label, model, suffix, thinking in EXTRA_GROUPS:
+        for key, german, _ in VARIANTS:
+            run = pick_optional(runs, model, f"university_{key}_power{suffix}", thinking,
+                                temperature=0.7, loops=5, mode="per_row")
+            if run is not None:
+                out[group, key] = export_of(run, f"{label} {german}")
+    return out
+
+
+def extra_university(extra: dict, uni: dict, un: pd.DataFrame):
+    """Run the further conditions through the FORTRAN port.
+
+    Returns the runs (with the rule-based forms and the main-model structures of ``un`` for
+    pairing), the tests, and notes on comparisons that were left out because the two structures
+    are the same matrix. A condition is compared with the form expected for its variant and with
+    the main-model structure of the same variant (threshold)."""
+    refs = {f"D_{getattr(k, 'value', k)}": np.asarray(m, bool) for k, m in reference_matrices(10, 10).items()}
+    main_name = {key: f"Hochschule {german} (Schwelle)" for key, german, _ in VARIANTS}
+    mats = {**refs, **{main_name[key]: uni[key].binary for key in uni}}
+    conds, pairs, notes = [], [], []
+    for (group, key), exp in extra.items():
+        conds.append(cp.FortranCondition(exp.name, export=exp))
+        mats[exp.name] = exp.binary
+        expected = f"D_{dict((k, e) for k, _, e in VARIANTS)[key]}"
+        used = []  # references whose matrix has been dealt with for this condition
+        for ref in (expected, main_name[key]):
+            if any((mats[ref] == mats[u]).all() for u in used):
+                continue  # the same matrix as a reference already compared or noted
+            if (mats[ref] == exp.binary).all():
+                notes.append(f"{exp.name}: Struktur identisch mit {ref}, kein Test")
+            else:
+                pairs.append((exp.name, ref))
+            used.append(ref)
+    runs = cp.run_fortran_conditions(conds)
+    base = un[un.condition.isin(list(mats))]
+    both = pd.concat([base, runs], ignore_index=True)
+    tests = tests_against(both, pairs) if pairs else pd.DataFrame()
+    return both, tests, notes
+
+
 # ------------------------------------------------------------------------------------ figures
+def plot_kit(out: Path):
+    """Colours, formatters and the two helpers shared by all figures."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.colors import LinearSegmentedColormap
+    from matplotlib.ticker import FuncFormatter
+
+    surf, axis = "#ffffff", "#c3c2b7"
+    plt.rcParams.update({"font.family": "DejaVu Sans", "font.size": 9, "axes.edgecolor": axis, "axes.labelcolor": "#52514e",
+                         "xtick.color": "#52514e", "ytick.color": "#52514e", "axes.titlecolor": "#0b0b0b", "axes.titlesize": 10,
+                         "savefig.dpi": 300, "axes.spines.top": False, "axes.spines.right": False})
+    cmap = LinearSegmentedColormap.from_list("blue", ["#f0efec", "#9ec5f4", "#3987e5", "#184f95"])
+    out.mkdir(parents=True, exist_ok=True)
+
+    def save(fig, name):
+        for ext in ("pdf", "png"):
+            fig.savefig(out / f"{name}.{ext}", bbox_inches="tight", facecolor=surf)
+        plt.close(fig)
+
+    def heat(ax, m, title, ticks_x, ticks_y, outline=None):
+        im = ax.imshow(m, cmap=cmap, vmin=0, vmax=1)
+        ax.set_xticks(np.arange(m.shape[1])); ax.set_yticks(np.arange(m.shape[0]))
+        ax.set_xticks(np.arange(-.5, m.shape[1], 1), minor=True); ax.set_yticks(np.arange(-.5, m.shape[0], 1), minor=True)
+        ax.grid(which="minor", color=surf, lw=1.2); ax.tick_params(which="both", length=0, labelsize=7)
+        ax.set_xticklabels(ticks_x, rotation=90 if len(str(ticks_x[0])) > 3 else 0); ax.set_yticklabels(ticks_y)
+        for s in ax.spines.values():
+            s.set_visible(False)
+        if outline is not None:
+            for i, j in np.argwhere(outline):
+                ax.add_patch(plt.Rectangle((j - .5, i - .5), 1, 1, fill=False, ec="#e34948", lw=1.4, zorder=5))
+        ax.set_title(title, fontsize=9)
+        return im
+
+    return plt, save, heat, FuncFormatter(lambda v, _: f"{v:.1f}".replace(".", ","))
+
+
+MEMBERS = {"president": "Präsidentin", "chancellor": "Kanzler", "vice_president": "Vizepräs. Studium", "dean": "Dekan",
+           "full_professor": "Professorin", "junior_professor": "Juniorprof.", "research_associate": "Wiss. Mitarbeiterin",
+           "faculty_officer": "Fakultätsverw.", "student_representative": "Stud. Vertretung", "student": "Student"}
+BODIES = ["Senat", "Haushalt", "Berufung", "Fakultätsrat", "Studienkomm.", "Prüfungsaussch.", "Forschungsförd.",
+          "Modul-AG", "Laborbeschaff.", "O-Woche"]
+
+
+def extra_figures(out: Path, uni: dict, extra: dict, summ: pd.DataFrame | None) -> list[str]:
+    """Figures of the further university conditions; returns the names of those written.
+
+    Cells outlined in red are permitted or not permitted differently (threshold 0.5) than in the
+    first row of the same column, which is always the main model with the participation statement."""
+    plt, save, heat, comma1 = plot_kit(out)
+    row_ids = uni["strong"].row_ids
+    members = [MEMBERS[i] for i in row_ids]
+    written = []
+
+    def grid(rows, keys, name, width):
+        fig, axs = plt.subplots(len(rows), len(keys), figsize=(width, 2.05 * len(rows) + 1.1), constrained_layout=True, squeeze=False)
+        titles = {"strong": "starke Macht", "moderate": "mittlere Macht", "weak": "schwache Macht"}
+        for ri, (label, exports) in enumerate(rows):
+            for ci, key in enumerate(keys):
+                base, exp = rows[0][1][key], exports[key]
+                im = heat(axs[ri, ci], exp.probability, titles[key] if ri == 0 else "",
+                          BODIES if ri == len(rows) - 1 else [""] * 10, members if ci == 0 else [""] * 10,
+                          None if ri == 0 else exp.binary != base.binary)
+                axs[ri, ci].title.set_fontsize(8)
+            axs[ri, 0].set_ylabel(label, fontsize=8, color="#0b0b0b")
+        cb = fig.colorbar(im, ax=axs, shrink=.5, pad=.01); cb.set_label("Ja-Anteil", fontsize=8)
+        cb.ax.tick_params(labelsize=7); cb.ax.yaxis.set_major_formatter(comma1); cb.outline.set_visible(False)
+        save(fig, name)
+        written.append(name)
+
+    def group(g):
+        found = {key: extra[g, key] for key, _, _ in VARIANTS if (g, key) in extra}
+        return found if len(found) == 3 else None
+
+    np_, low, argon = group("np"), group("low"), group("argon")
+    if np_:
+        grid([("mit Teilnahmeaussage", uni), ("ohne Teilnahmeaussage", np_)], ("strong", "moderate", "weak"),
+             "abb_4_6_hochschule_ohne_teilnahme", 7.6)
+    models = [(f"{GEMINI}\nDenkstufe minimal", uni)] + ([(f"{GEMINI}\nDenkstufe low", low)] if low else []) \
+        + ([(f"{ARGON}\nDenkstufe low", argon)] if argon else [])
+    if len(models) > 1:
+        grid(models, ("strong", "moderate"), "abb_4_7_hochschule_modelle", 5.6)
+    if summ is not None:
+        rows = [("D_unsegmented", "D0 unsegmentiert"), ("D_hierarchical", "D1 hierarchisch"), ("D_specialized", "D2 spezialisiert")]
+        for key, german, _ in VARIANTS:
+            rows.append((f"Hochschule {german} (Schwelle)", f"{german}: Hauptmodell"))
+            rows += [(extra[g, key].name, f"{german}: {label}") for g, label, *_ in EXTRA_GROUPS if (g, key) in extra]
+        rows = [(k, l) for k, l in rows if k in summ.index]
+        from matplotlib.ticker import FuncFormatter
+        styles_bar(plt, FuncFormatter(lambda v, _: f"{v * 100:.0f} %"), ["#2a78d6", "#eb6834", "#1baf7a", "#eda100"], "#ffffff",
+                   "#0b0b0b", "#c3c2b7", summ, rows, 2.5, out, "abb_4_8_hochschule_entscheidungsstile", save)
+        written.append("abb_4_8_hochschule_entscheidungsstile")
+    return written
+
+
 def figures(out: Path, runs, ref_summary: pd.DataFrame, uni_exports: dict) -> None:
     import matplotlib
 
@@ -455,6 +625,27 @@ def main() -> None:
                          "dz", "p_holm", "chi2", "chi2_p", "cramers_v"]].round(4).to_markdown(index=False), ""]
     print("FF3 university scenario done")
 
+    # further university conditions (only those that have been run)
+    extra = extra_university_exports(runs)
+    extra_summary = None
+    if extra:
+        ex, ex_tests, notes = extra_university(extra, uni, un)
+        ex.to_csv(out / "ff3_university_extra_runs.csv", index=False)
+        extra_summary = summary(ex)
+        extra_summary.to_csv(out / "ff3_university_extra_summary.csv")
+        ex_tests.to_csv(out / "ff3_university_extra_tests.csv", index=False)
+        cols = ["condition", "reference", "Kennzahl", "mean", "baseline_mean", "difference", "diff_ci_low", "diff_ci_high",
+                "dz", "p_holm", "chi2", "chi2_p", "cramers_v"]
+        report += ["## FF3: Hochschulszenario, weitere Bedingungen im FORTRAN-Port", "",
+                   "Schwelle 0,5, 108 Situationen je Bedingung. Verglichen wird mit der für die Variante erwarteten Reinform und "
+                   "mit der Struktur des Hauptmodells (Denkstufe minimal, mit Teilnahmeaussage) derselben Variante. "
+                   "Die Holm-Korrektur umfasst alle Tests dieses Abschnitts.", "",
+                   "Entartung: " + "; ".join(f"{v.name}: {v.degenerate}" for v in extra.values()), "",
+                   extra_summary.round(3).to_markdown(), ""]
+        report += ([ex_tests[cols].round(4).to_markdown(index=False), ""] if len(ex_tests) else [])
+        report += (["Ohne Test: " + "; ".join(notes), ""] if notes else [])
+        print(f"FF3 further university conditions done ({len(extra)})")
+
     # NetLogo docking table
     nr = data_dir() / "docking" / "netlogo_runs.csv"
     if nr.exists():
@@ -471,6 +662,8 @@ def main() -> None:
         report += ["## NetLogo-Docking", "", nd.round(4).to_markdown(index=False), ""]
 
     figures(out / "figures", runs, ref_summary, uni)
+    if extra:
+        extra_figures(out / "figures", uni, extra, extra_summary)
     (out / "report.md").write_text("\n".join(report), encoding="utf-8")
     print(f"done: {out}")
 

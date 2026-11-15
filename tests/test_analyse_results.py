@@ -47,10 +47,10 @@ def logs(tmp_path, monkeypatch, scenarios):
     """Writes run logs like run_batch.py does and returns the function that adds one."""
     monkeypatch.setenv("GCM_DATA_DIR", str(tmp_path))
 
-    def write(scenario_id: str, identity: dict = GEMINI, **changes) -> str:
+    def write(scenario_id: str, identity: dict = GEMINI, noise: float = 0.1, **changes) -> str:
         s = scenarios[scenario_id]
         cfg = replace(MAIN, scenario_id=scenario_id, **changes)
-        connector = _As.for_scenario(s, identity=identity, noise=0.1, seed=cfg.seed)
+        connector = _As.for_scenario(s, identity=identity, noise=noise, seed=cfg.seed)
         return run_experiment(s, cfg, connector, log_dir=tmp_path / "llm_runs").log_path.name
 
     return write
@@ -122,3 +122,92 @@ def test_main_model_with_two_thinking_settings_uses_the_one_of_the_thesis(ar, lo
     assert hit["file"] == main != low
     table = ar.ff2_table(runs)
     assert sorted(table["thinking"]) == ["level=low", "level=minimal"]  # both stay in the table
+
+
+# --------------------------------------------------------- further university conditions
+LOW = {**GEMINI, "thinking_level": "low"}
+ARGON = {**GEMINI, "model": "gemini-4-argon", "thinking_level": "low"}
+QWEN = {"connector": "ollama", "model": "qwen3:4b", "url": "u", "think": False}
+
+
+def test_pick_takes_an_explicit_thinking_setting_and_optional_runs_may_be_missing(ar, logs, scenarios):
+    main = logs("university_strong_power")
+    low = logs("university_strong_power", identity=LOW)
+    runs = ar.load_runs(scenarios)
+    common = dict(temperature=0.7, loops=5, mode="per_row")
+    assert ar.pick(runs, ar.GEMINI, "university_strong_power", **common)["file"] == main
+    assert ar.pick(runs, ar.GEMINI, "university_strong_power", "level=low", **common)["file"] == low
+    assert ar.pick_optional(runs, ar.ARGON, "university_strong_power", "level=low", **common) is None
+    assert ar.pick_optional(runs, ar.GEMINI, "university_strong_power_no_participation", **common) is None
+
+
+def university_logs(logs, extra: bool):
+    for key in ("strong", "moderate", "weak"):
+        logs(f"university_{key}_power")
+        if extra:
+            logs(f"university_{key}_power_no_participation", noise=0.45)  # far from the expected form
+            logs(f"university_{key}_power", identity=LOW, noise=0.0)  # exactly the expected form
+    if extra:
+        logs("university_strong_power", identity=ARGON, noise=0.3)
+
+
+def test_further_university_conditions_are_found_run_and_compared(ar, logs, scenarios):
+    university_logs(logs, extra=True)
+    runs = ar.load_runs(scenarios)
+    common = dict(temperature=0.7, loops=5, mode="per_row")
+    uni = {k: ar.export_of(ar.pick(runs, ar.GEMINI, f"university_{k}_power", **common), f"Hochschule {k}")
+           for k in ("strong", "moderate", "weak")}
+    extra = ar.extra_university_exports(runs)
+    assert set(extra) == {("np", "strong"), ("np", "moderate"), ("np", "weak"), ("low", "strong"), ("low", "moderate"),
+                          ("low", "weak"), ("argon", "strong")}
+    assert extra["np", "strong"].scenario_id == "university_strong_power_no_participation"
+    assert extra["np", "weak"].name == "ohne Teilnahmeaussage schwach"
+
+    from gcm.contextual import compare as cp
+
+    un = cp.run_fortran_conditions(cp.fortran_reference_conditions() + [
+        cp.FortranCondition(f"Hochschule {g} (Schwelle)", export=uni[k])
+        for k, g in (("strong", "stark"), ("moderate", "mittel"), ("weak", "schwach"))])
+    both, tests, notes = ar.extra_university(extra, uni, un)
+    names = [e.name for e in extra.values()]
+    assert set(both.condition) == {"D_unsegmented", "D_hierarchical", "D_specialized", "Hochschule stark (Schwelle)",
+                                   "Hochschule mittel (Schwelle)", "Hochschule schwach (Schwelle)", *names}
+    assert (both.groupby("condition").size() == 108).all()
+    # a condition is compared with the expected form and with the main-model structure, once per distinct matrix
+    pairs = set(zip(tests.condition, tests.reference, strict=True))
+    assert ("ohne Teilnahmeaussage stark", "D_hierarchical") in pairs
+    assert ("ohne Teilnahmeaussage schwach", "D_unsegmented") in pairs
+    assert all(c != r for c, r in pairs) and len(tests) == 8 * len(pairs)
+    for name, expected in (("Hauptmodell, Denkstufe low stark", "D_hierarchical"),
+                           ("Hauptmodell, Denkstufe low schwach", "D_unsegmented")):
+        assert f"{name}: Struktur identisch mit {expected}, kein Test" in notes  # noise 0 = the expected form
+        assert (name, expected) not in pairs
+    assert len(notes) == len(set(notes))
+    assert tests.p_holm.between(0, 1).all()
+
+
+@pytest.mark.parametrize("extra", [False, True])
+def test_whole_analysis_runs_with_and_without_the_further_conditions(ar, logs, tmp_path, monkeypatch, capsys, extra):
+    logs("reference_hierarchical")
+    logs("reference_hierarchical", identity=QWEN, noise=0.3)
+    logs("reference_hierarchical", identity=QWEN, noise=0.2, temperature=0.0, loops=2)
+    university_logs(logs, extra)
+    monkeypatch.setattr("sys.argv", ["analyse_results.py", "--null", "0"])
+    ar.main()
+    out = tmp_path / "analysis"
+    report = (out / "report.md").read_text(encoding="utf-8")
+    figures = sorted(p.stem for p in (out / "figures").glob("*.png"))
+    old = ["abb_4_2_qwen_hierarchie", "abb_4_3_entscheidungsstile", "abb_4_4_hochschulstrukturen"]
+    heading = "## FF3: Hochschulszenario, weitere Bedingungen im FORTRAN-Port"
+    assert "## FF3: Hochschulszenario im FORTRAN-Port" in report
+    if extra:
+        assert heading in report and "ohne Teilnahmeaussage stark" in report and "gemini-4-argon stark" in report
+        # the models figure needs all three variants of a model; argon has only one here
+        assert figures == [*old, "abb_4_6_hochschule_ohne_teilnahme", "abb_4_7_hochschule_modelle",
+                           "abb_4_8_hochschule_entscheidungsstile"]
+        assert (out / "ff3_university_extra_summary.csv").exists() and (out / "ff3_university_extra_tests.csv").exists()
+    else:
+        assert heading not in report and figures == old
+        assert not list(out.glob("ff3_university_extra_*"))
+    for name in ("ff3_university_runs.csv", "ff3_university_summary.csv", "ff3_reference_summary.csv", "ff2_configs.csv"):
+        assert (out / name).exists()
