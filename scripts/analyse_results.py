@@ -33,6 +33,15 @@ thinking level low, and gemini-4-argon. Each is run through the FORTRAN port and
 rule-based form expected for its variant and with the main-model structure of the same variant.
 They get their own section in the report, their own CSV files (ff3_university_extra_*) and the
 figures abb_4_6 to abb_4_8; the existing outputs do not change.
+
+--arithmetic ibm360 (or float64, ibm360-nearest) repeats every FORTRAN run of the analysis with
+another arithmetic backend of the port. The output then goes to data/analysis__<arithmetic>/, so
+the main analysis stays as it is, and arithmetic_comparison.md in that folder sets the two side by
+side: decision styles per condition and, for every test, whether direction and significance of
+the difference are the same. Run the main analysis first.
+
+  uv run python scripts/analyse_results.py
+  uv run python scripts/analyse_results.py --arithmetic ibm360
 """
 
 from __future__ import annotations
@@ -205,12 +214,12 @@ def tests_against(df, pairs) -> pd.DataFrame:
 
 
 def _run_binary(args):
-    exp, binary, name = args
-    df = cp.run_fortran_conditions([cp.FortranCondition(name, export=with_binary(exp, binary, name))])
+    exp, binary, name, arithmetic = args
+    df = cp.run_fortran_conditions([cp.FortranCondition(name, export=with_binary(exp, binary, name))], arithmetic=arithmetic)
     return summary(df).iloc[0].to_dict()
 
 
-def null_and_samples(exp_t07, n_null, workers, seed=2026) -> pd.DataFrame:
+def null_and_samples(exp_t07, n_null, workers, seed=2026, arithmetic="exact") -> pd.DataFrame:
     rng = np.random.default_rng(seed)
     jobs = [(exp_t07, exp_t07.sample(rng), f"sample{i}") for i in range(30)]
     D1 = reference_matrices(10, 10)["hierarchical"]
@@ -238,7 +247,7 @@ def null_and_samples(exp_t07, n_null, workers, seed=2026) -> pd.DataFrame:
                 jobs.append((exp_t07, m, f"null_rows_k{k}_{made}"))
                 made += 1
     with ProcessPoolExecutor(max_workers=max(1, workers)) as ex:
-        res = list(ex.map(_run_binary, jobs, chunksize=8))
+        res = list(ex.map(_run_binary, [(*job, arithmetic) for job in jobs], chunksize=8))
     return pd.DataFrame(res, index=[n for _, _, n in jobs])
 
 
@@ -263,7 +272,7 @@ def extra_university_exports(runs) -> dict:
     return out
 
 
-def extra_university(extra: dict, uni: dict, un: pd.DataFrame):
+def extra_university(extra: dict, uni: dict, un: pd.DataFrame, arithmetic: str = "exact"):
     """Run the further conditions through the FORTRAN port.
 
     Returns the runs (with the rule-based forms and the main-model structures of ``un`` for
@@ -287,7 +296,7 @@ def extra_university(extra: dict, uni: dict, un: pd.DataFrame):
             else:
                 pairs.append((exp.name, ref))
             used.append(ref)
-    runs = cp.run_fortran_conditions(conds)
+    runs = cp.run_fortran_conditions(conds, arithmetic=arithmetic)
     base = un[un.condition.isin(list(mats))]
     both = pd.concat([base, runs], ignore_index=True)
     tests = tests_against(both, pairs) if pairs else pd.DataFrame()
@@ -539,20 +548,66 @@ def styles_bar(plt, pct, cat, surf, ink, axis, summ, rows, divider, out, name, s
     save(fig, name)
 
 
+# ------------------------------------------------------------- comparison of two arithmetics
+def arithmetic_comparison(exact_dir: Path, other_dir: Path, arithmetic: str) -> str | None:
+    """Set the FORTRAN results of the main analysis (exact) and of another arithmetic side by side.
+
+    Reads the summary and test tables both runs wrote. For the styles it reports the shares per
+    condition; for the tests whether the difference keeps its sign and whether it stays on the same
+    side of p_holm = 0.05. Returns the Markdown text, or None when the main analysis is missing."""
+    lines = [f"# FORTRAN-Vergleiche mit Arithmetik `{arithmetic}` gegenüber `exact`", "",
+             "Quelle: die Tabellen dieses Ordners und von `data/analysis`. Anteile gepoolt über 108 Situationen. "
+             "Bei den Tests heißt \"Richtung gleich\", dass die mittlere gepaarte Differenz dasselbe Vorzeichen hat, "
+             "und \"Signifikanz gleich\", dass p (Holm) in beiden Rechnungen auf derselben Seite von 0,05 liegt.", ""]
+    found = False
+    for part, title in (("reference", "Referenzszenarien"), ("university", "Hochschulszenario"),
+                        ("university_extra", "Hochschulszenario, weitere Bedingungen")):
+        a, b = exact_dir / f"ff3_{part}_summary.csv", other_dir / f"ff3_{part}_summary.csv"
+        if not (a.exists() and b.exists()):
+            continue
+        found = True
+        sa, sb = pd.read_csv(a, index_col=0), pd.read_csv(b, index_col=0)
+        common = [c for c in sa.index if c in sb.index]
+        t = pd.DataFrame({"resolution exact": sa.loc[common, "resolution"], f"resolution {arithmetic}": sb.loc[common, "resolution"],
+                          "flight exact": sa.loc[common, "flight"], f"flight {arithmetic}": sb.loc[common, "flight"],
+                          "KX exact": sa.loc[common, "KX"], f"KX {arithmetic}": sb.loc[common, "KX"]})
+        t["Differenz Resolution"] = t[f"resolution {arithmetic}"] - t["resolution exact"]
+        lines += [f"## {title}", "", t.round(3).to_markdown(), ""]
+        ta, tb = exact_dir / f"ff3_{part}_tests.csv", other_dir / f"ff3_{part}_tests.csv"
+        if ta.exists() and tb.exists() and ta.stat().st_size > 5 and tb.stat().st_size > 5:
+            key = ["condition", "reference", "Kennzahl"]
+            m = pd.read_csv(ta).merge(pd.read_csv(tb), on=key, suffixes=(" exact", f" {arithmetic}"))
+            if len(m):
+                da, db = m["difference exact"], m[f"difference {arithmetic}"]
+                m["Richtung gleich"] = np.sign(da.round(6)) == np.sign(db.round(6))
+                m["Signifikanz gleich"] = (m["p_holm exact"] < 0.05) == (m[f"p_holm {arithmetic}"] < 0.05)
+                lines += [f"Tests: {len(m)}, Richtung gleich in {int(m['Richtung gleich'].sum())}, "
+                          f"Signifikanz gleich in {int(m['Signifikanz gleich'].sum())}.", ""]
+                changed = m[~(m["Richtung gleich"] & m["Signifikanz gleich"])]
+                cols = [*key, "difference exact", f"difference {arithmetic}", "p_holm exact", f"p_holm {arithmetic}",
+                        "Richtung gleich", "Signifikanz gleich"]
+                lines += (["Tests mit anderem Ergebnis:", "", changed[cols].round(4).to_markdown(index=False), ""] if len(changed)
+                          else ["Kein Test ändert Richtung oder Signifikanz.", ""])
+    return "\n".join(lines) if found else None
+
+
 # ------------------------------------------------------------------------------------ main
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--null", type=int, default=200, help="draws per null model (0 = skip)")
     ap.add_argument("--workers", type=int, default=2)
+    ap.add_argument("--arithmetic", default="exact", choices=["exact", "float64", "ibm360", "ibm360-nearest"],
+                    help="arithmetic of the FORTRAN port; anything but exact writes to data/analysis__<arithmetic>")
     args = ap.parse_args()
+    arith = args.arithmetic
 
-    out = data_dir() / "analysis"
+    out = data_dir() / ("analysis" if arith == "exact" else f"analysis__{arith}")
     out.mkdir(parents=True, exist_ok=True)
     scenarios = load_scenarios()
     runs = load_runs(scenarios)
     if not runs:
         sys.exit("no run logs under data/llm_runs")
-    report = ["# Auswertung (scripts/analyse_results.py)", ""]
+    report = ["# Auswertung (scripts/analyse_results.py)" + ("" if arith == "exact" else f", Arithmetik {arith}"), ""]
 
     ff2 = ff2_table(runs)
     ff2.to_csv(out / "ff2_configs.csv", index=False)
@@ -570,7 +625,7 @@ def main() -> None:
         cp.FortranCondition("qwen3:4b hier T0.7", export=q07),
         cp.FortranCondition("qwen3:4b hier T0.7 (Ziehung)", export=q07, mode="sample"),
     ]
-    ref = cp.run_fortran_conditions(conds)
+    ref = cp.run_fortran_conditions(conds, arithmetic=arith)
     ref.to_csv(out / "ff3_reference_runs.csv", index=False)
     cols = ["by_resolution", "by_oversight", "by_flight", "problem_persistence", "choice_persistence"]
     same = (ref[ref.condition == "D_hierarchical"][cols].to_numpy() == ref[ref.condition == "gemini hier T0.7"][cols].to_numpy()).all()
@@ -585,7 +640,7 @@ def main() -> None:
     print("FF3 reference scenarios done")
 
     if args.null:
-        nul = null_and_samples(q07, args.null, args.workers)
+        nul = null_and_samples(q07, args.null, args.workers, arithmetic=arith)
         nul.to_csv(out / "ff3_samples_and_null.csv")
         groups = nul.index.str.replace(r"_\d+$", "", regex=True).str.replace(r"^sample\d+$", "samples", regex=True)
         rows = []
@@ -611,7 +666,7 @@ def main() -> None:
         cp.FortranCondition("Hochschule mittel (Ziehung)", export=uni["moderate"], mode="sample"),
         cp.FortranCondition("Hochschule schwach (Schwelle)", export=uni["weak"]),
     ]
-    un = cp.run_fortran_conditions(conds)
+    un = cp.run_fortran_conditions(conds, arithmetic=arith)
     un.to_csv(out / "ff3_university_runs.csv", index=False)
     un_summary = summary(un)
     un_summary.to_csv(out / "ff3_university_summary.csv")
@@ -629,7 +684,7 @@ def main() -> None:
     extra = extra_university_exports(runs)
     extra_summary = None
     if extra:
-        ex, ex_tests, notes = extra_university(extra, uni, un)
+        ex, ex_tests, notes = extra_university(extra, uni, un, arith)
         ex.to_csv(out / "ff3_university_extra_runs.csv", index=False)
         extra_summary = summary(ex)
         extra_summary.to_csv(out / "ff3_university_extra_summary.csv")
@@ -665,6 +720,13 @@ def main() -> None:
     if extra:
         extra_figures(out / "figures", uni, extra, extra_summary)
     (out / "report.md").write_text("\n".join(report), encoding="utf-8")
+    if arith != "exact":
+        text = arithmetic_comparison(data_dir() / "analysis", out, arith)
+        if text is None:
+            print("no comparison written: run the analysis without --arithmetic first (data/analysis is missing)")
+        else:
+            (out / "arithmetic_comparison.md").write_text(text, encoding="utf-8")
+            print(f"comparison with the exact arithmetic: {out / 'arithmetic_comparison.md'}")
     print(f"done: {out}")
 
 

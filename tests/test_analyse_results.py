@@ -211,3 +211,38 @@ def test_whole_analysis_runs_with_and_without_the_further_conditions(ar, logs, t
         assert not list(out.glob("ff3_university_extra_*"))
     for name in ("ff3_university_runs.csv", "ff3_university_summary.csv", "ff3_reference_summary.csv", "ff2_configs.csv"):
         assert (out / name).exists()
+
+
+def test_second_arithmetic_goes_to_its_own_folder_and_is_compared_with_the_main_analysis(ar, logs, tmp_path, monkeypatch, capsys):
+    logs("reference_hierarchical")
+    logs("reference_hierarchical", identity=QWEN, noise=0.3)
+    logs("reference_hierarchical", identity=QWEN, noise=0.2, temperature=0.0, loops=2)
+    university_logs(logs, extra=True)
+
+    monkeypatch.setattr("sys.argv", ["analyse_results.py", "--null", "0", "--arithmetic", "ibm360"])
+    ar.main()  # without a main analysis there is nothing to compare with
+    other = tmp_path / "analysis__ibm360"
+    assert (other / "report.md").exists() and not (other / "arithmetic_comparison.md").exists()
+    assert "run the analysis without --arithmetic first" in capsys.readouterr().out
+    assert not (tmp_path / "analysis").exists()
+
+    monkeypatch.setattr("sys.argv", ["analyse_results.py", "--null", "0"])
+    ar.main()
+    main_report = (tmp_path / "analysis" / "report.md").read_bytes()
+    monkeypatch.setattr("sys.argv", ["analyse_results.py", "--null", "0", "--arithmetic", "ibm360"])
+    ar.main()
+    assert (tmp_path / "analysis" / "report.md").read_bytes() == main_report  # the main analysis is left alone
+    assert "Arithmetik ibm360" in (other / "report.md").read_text(encoding="utf-8").splitlines()[0]
+    text = (other / "arithmetic_comparison.md").read_text(encoding="utf-8")
+    for heading in ("## Referenzszenarien", "## Hochschulszenario", "## Hochschulszenario, weitere Bedingungen"):
+        assert heading in text
+    assert "Richtung gleich in" in text and "resolution ibm360" in text
+
+    import pandas as pd
+
+    exact = pd.read_csv(tmp_path / "analysis" / "ff3_reference_runs.csv")
+    ibm = pd.read_csv(other / "ff3_reference_runs.csv")
+    assert len(exact) == len(ibm) and list(exact.condition) == list(ibm.condition)
+    # the two arithmetics decide ties differently, so some of the 108 situations must differ
+    d1 = lambda df: df[df.condition == "D_hierarchical"]["by_resolution"].to_numpy()  # noqa: E731
+    assert (d1(exact) != d1(ibm)).any()
