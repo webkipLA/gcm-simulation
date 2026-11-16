@@ -29,6 +29,14 @@ Usage (from the repository root):
   uv run python scripts/run_docking.py --reference ... --arithmetic exact ibm360 ibm360-nearest
   uv run python scripts/run_docking.py --reference ... --netlogo-ticks 50000 --netlogo-seeds 30
   uv run python scripts/run_docking.py --reference ... --skip-netlogo
+  uv run python scripts/run_docking.py --reference ... --skip-netlogo --initial-requirement 1.1 0 1.0 --out data/docking_initial_requirement
+
+--initial-requirement sets the energy requirement the program assigns to a choice before it has
+ever been evaluated (XERC, 1.1 in the listing). Several values are run one after the other and
+compared in the report: how many published values each one reproduces and in how many of the 324
+situations the results differ from the first value. Files of a value other than 1.1 carry the
+suffix __xerc<value>. Use --out for such a comparison: the report in data/docking is rewritten on
+every start, and with --skip-netlogo it would lose its NetLogo part.
 
 Output (``data/docking/``):
   fortran_runs_<arith>.csv        324 rows with all ten program statistics and decision styles
@@ -69,11 +77,12 @@ TOL_COUNT_MIN = 2  # absolute floor for counts in Tab. 5
 
 
 # ------------------------------------------------------------------------------------ FORTRAN
-def run_fortran(arithmetic: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def run_fortran(arithmetic: str, initial_requirement: str = "1.1") -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """324 runs: per-run statistics, per-choice and per-problem rows."""
     runs, choices, problems = [], [], []
     for cond, (choice_entry, problem_entry) in data.ENTRY_CONDITIONS.items():
-        params = FortranParameters.from_entry_condition(cond, arithmetic=arithmetic)
+        params = FortranParameters.from_entry_condition(
+            cond, arithmetic=arithmetic, initial_choice_requirement=initial_requirement)
         for v in OrganizationalVariant.all():
             model, stats = experiments.run_variant(v, params)
             hist = model.history
@@ -336,37 +345,84 @@ def run_netlogo(ticks: int, seeds: int, workers: int) -> tuple[pd.DataFrame, pd.
     return df, summary, pd.DataFrame(rows)
 
 
+def compare_configurations(results: dict) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Compare FORTRAN configurations (arithmetic x initial requirement) with the first one.
+
+    ``results`` maps a tag to ``(runs, docking table)``. Returns one row per configuration and the
+    published values whose status is not the same in every configuration."""
+    first_tag = next(iter(results))
+    first_runs, first_dock = results[first_tag]
+    keys = ["entry_condition", "code"]
+    stats = [c for c in first_runs.columns if c not in keys + ["load", "access", "decision", "energy"]]
+    base = first_runs.set_index(keys)[stats]
+    rows = []
+    for tag, (runs, dock) in results.items():
+        here = runs.set_index(keys)[stats].loc[base.index]
+        differs = ~np.isclose(here.to_numpy(float), base.to_numpy(float), equal_nan=True).all(axis=1)
+        counts = dock["status"].value_counts()
+        made = runs["choices_made"].sum()
+        rows.append({
+            "configuration": tag,
+            "identisch im Rahmen der Rundung": int(counts.get("identisch im Rahmen der Rundung", 0)),
+            "innerhalb Toleranz": int(counts.get("innerhalb Toleranz", 0)),
+            "Abweichung": int(counts.get("Abweichung", 0)),
+            "situations differing from the first": int(differs.sum()),
+            "resolution": runs["by_resolution"].sum() / made,
+            "oversight": runs["by_oversight"].sum() / made,
+            "flight": runs["by_flight"].sum() / made,
+            "choices made": int(made),
+        })
+    status = pd.DataFrame({tag: dock.set_index("id")["status"] for tag, (_, dock) in results.items()})
+    port = pd.DataFrame({tag: dock.set_index("id")["port"] for tag, (_, dock) in results.items()})
+    changed = status[status.nunique(axis=1) > 1]
+    info = first_dock.set_index("id").loc[changed.index, ["fundstelle", "publiziert"]]
+    detail = info.join(port.loc[changed.index].add_prefix("port ")).join(changed.add_prefix("status ")).reset_index()
+    return pd.DataFrame(rows), detail
+
+
 # ------------------------------------------------------------------------------------ main
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--reference", type=Path, required=True, help="GCM_Referenzdaten_*.xlsx")
     ap.add_argument("--arithmetic", nargs="+", default=["exact"], choices=["exact", "float64", "ibm360", "ibm360-nearest"])
+    ap.add_argument("--initial-requirement", nargs="+", default=["1.1"], metavar="VALUE",
+                    help="initial energy requirement of a choice (XERC), default 1.1 as in the listing; "
+                         "several values are compared, e.g. --initial-requirement 1.1 0 1.0")
     ap.add_argument("--netlogo-ticks", type=int, default=5000)
     ap.add_argument("--netlogo-seeds", type=int, default=4)
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1))
     ap.add_argument("--skip-netlogo", action="store_true")
     ap.add_argument("--out", type=Path, default=None, help="output directory (default data/docking)")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
 
     out = args.out or (data_dir() / "docking")
     out.mkdir(parents=True, exist_ok=True)
     ref = load_reference(args.reference)
     report = [f"# Docking report\n\nreference: `{args.reference.name}`, {len(ref)} published values\n"]
 
-    for arith in args.arithmetic:
+    for value in args.initial_requirement:
+        try:
+            float(value)
+        except ValueError:
+            sys.exit(f"--initial-requirement takes decimal numbers, got {value!r}")
+    results = {}
+    for arith, initial in [(a, i) for a in args.arithmetic for i in args.initial_requirement]:
         t0 = time.time()
-        runs, choices, problems = run_fortran(arith)
-        runs.to_csv(out / f"fortran_runs_{arith}.csv", index=False)
-        choices.to_csv(out / f"fortran_choices_{arith}.csv", index=False)
-        problems.to_csv(out / f"fortran_problems_{arith}.csv", index=False)
+        tag = arith if initial == "1.1" else f"{arith}__xerc{initial}"  # 1.1 keeps the file names used so far
+        runs, choices, problems = run_fortran(arith, initial)
+        runs.to_csv(out / f"fortran_runs_{tag}.csv", index=False)
+        choices.to_csv(out / f"fortran_choices_{tag}.csv", index=False)
+        problems.to_csv(out / f"fortran_problems_{tag}.csv", index=False)
         own = own_values(runs, choices, problems)
         dock = dock_cmo(ref, own)
-        dock.to_csv(out / f"cmo_docking_{arith}.csv", index=False)
+        dock.to_csv(out / f"cmo_docking_{tag}.csv", index=False)
         props = properties_cmo(runs, choices, problems, own)
-        props.to_csv(out / f"cmo_properties_{arith}.csv", index=False)
+        props.to_csv(out / f"cmo_properties_{tag}.csv", index=False)
+        results[tag] = (runs, dock)
         counts = dock["status"].value_counts().to_dict()
         styles = runs[["by_resolution", "by_oversight", "by_flight"]].sum()
-        report.append(f"## FORTRAN port, arithmetic `{arith}` ({time.time() - t0:.0f} s, 324 runs)\n")
+        report.append(f"## FORTRAN port, arithmetic `{arith}`" + ("" if initial == "1.1" else f", initial requirement {initial}")
+                      + f" ({time.time() - t0:.0f} s, 324 runs)\n")
         report.append(f"pooled styles: {styles.to_dict()} of {int(runs['choices_made'].sum())} choices made\n")
         report.append(f"docking status: {counts}\n")
         report.append("### Deviations\n")
@@ -375,7 +431,17 @@ def main() -> None:
         report.append("\n### Properties\n")
         report.append(props[["nr", "verdict", "evidence"]].to_markdown(index=False))
         report.append("\n")
-        print(f"[{arith}] {counts}")
+        print(f"[{tag}] {counts}")
+
+    if len(results) > 1:
+        table, detail = compare_configurations(results)
+        table.to_csv(out / "fortran_configurations.csv", index=False)
+        detail.to_csv(out / "fortran_configurations_changed_values.csv", index=False)
+        report.append(f"## Comparison of the FORTRAN configurations (first: `{next(iter(results))}`)\n")
+        report.append(table.round(4).to_markdown(index=False))
+        report.append(f"\n### Published values whose status is not the same in every configuration ({len(detail)})\n")
+        report.append(detail.to_markdown(index=False) if len(detail) else "none\n")
+        report.append("\n")
 
     if not args.skip_netlogo:
         t0 = time.time()
