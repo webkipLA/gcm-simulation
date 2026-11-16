@@ -1,5 +1,21 @@
 # Changes
 
+## 2026-11-16: runs without a language model
+
+Four additions, each opt-in. Without the new options every script writes what it wrote before.
+
+| Script and option | What it does | Output |
+|---|---|---|
+| `run_docking.py --initial-requirement 1.1 0 1.0` | Runs the 324 situations with other initial energy requirements of a choice (XERC, 1.1 in the listing) and compares them. | `fortran_configurations.csv`, `fortran_configurations_changed_values.csv` and a section in `docking_report.md`. Use `--out`, because the report in `data/docking` is rewritten on every start. |
+| `analyse_results.py --arithmetic ibm360` | Repeats every FORTRAN condition of the analysis with another arithmetic backend. | `data/analysis__ibm360/` with `arithmetic_comparison.md`; `data/analysis` is not touched. |
+| `run_netlogo_llm.py sim --exclusion-controls` | Adds, for every LLM structure that shuts whole groups out, the expected form with the same groups shut out. | Files with the suffix `_controls` in `data/netlogo_llm`. |
+| `netlogo_original.py prepare` / `compare` | Prepares the original NetLogo model for a headless run and compares its result tables with the port. Needs a NetLogo installation. | `data/netlogo_original/` |
+
+`analyse_results.py` also analyses further university conditions when their run logs exist (without
+the participation statement, the main model with thinking level low, gemini-4-argon): section
+"FF3: Hochschulszenario, weitere Bedingungen im FORTRAN-Port", files `ff3_university_extra_*` and
+the figures `abb_4_6` to `abb_4_8`.
+
 ## 2026-11-13: extensions of the batch run (scripts/run_batch.py)
 
 Nothing changes for the configurations that have already been run. Prompt texts, scenario texts,
