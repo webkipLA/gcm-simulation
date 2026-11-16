@@ -26,6 +26,15 @@ Usage (from the repository root):
   --mapping ranked|random|inverse sets how groups map onto the abilities drawn at setup
   (default ranked: the first group gets the ablest participants).
 
+  --exclusion-controls adds one control condition per LLM structure that shuts whole groups out
+  (rows without any permitted body): the expected form of that variant with the same groups shut
+  out. An LLM structure differs from its expected form in two ways, in who is excluded altogether
+  and in which bodies the others may enter. The control has only the first difference, so
+  comparing the LLM structure with it shows what the second one adds. Output files of such a run
+  carry the suffix _controls; the files of a run without the flag are left alone.
+
+  uv run python scripts/run_netlogo_llm.py sim --connector gemini/gemini-3.5-flash-lite --ticks 50000 --seeds 10 --exclusion-controls
+
 Output in data/netlogo_llm/: structures.md (matrices, distances, row sums), runs.csv (one row per
 condition and seed), styles.csv, tests.csv (paired by seed, Holm-adjusted), report.md.
 Structures are also saved under data/structures/roles/.
@@ -130,7 +139,29 @@ def collect(scenarios, connectors, cache, *, ask: bool):
     return out
 
 
-def main() -> None:
+TARGET_FORM = {"strong_power": "hierarchical", "moderate_power": "specialized"}  # weak: no 6 x 5 target
+
+
+def exclusion_controls(exports: dict, refs: dict) -> dict:
+    """Control matrices for LLM structures that shut whole groups out.
+
+    Returns ``{control name: (binary, label of the LLM structure, name of its target condition,
+    ids of the excluded groups)}``. The control is the expected form of the variant with the rows
+    of the excluded groups emptied."""
+    out = {}
+    for label, exp in exports.items():
+        form = TARGET_FORM.get(label.split(": ")[1])
+        empty = ~np.asarray(exp.binary, bool).any(axis=1)
+        if form is None or not empty.any():
+            continue
+        binary = np.asarray(refs[form], bool).copy()
+        binary[empty, :] = False
+        excluded = [r for r, e in zip(exp.row_ids, empty, strict=True) if e]
+        out[f"control for {label}: {form} 6x5 without excluded groups"] = (binary, label, f"target: {form} 6x5", excluded)
+    return out
+
+
+def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("step", choices=["llm", "sim"])
     ap.add_argument("--connector", action="append", required=True)
@@ -139,7 +170,9 @@ def main() -> None:
     ap.add_argument("--seeds", type=int, default=10)
     ap.add_argument("--workers", type=int, default=2)
     ap.add_argument("--dry-run", action="store_true", help="sim: print the structures and the plan only")
-    args = ap.parse_args()
+    ap.add_argument("--exclusion-controls", action="store_true",
+                    help="sim: add the expected form with the groups an LLM structure shuts out, as a control")
+    args = ap.parse_args(argv)
 
     scenarios = load_scenarios()
     cache = DiskCache(cache_dir())
@@ -185,6 +218,9 @@ def main() -> None:
         cp.NetLogoCondition("target: hierarchical 6x5", base, export=as_export(refs["hierarchical"], "hierarchical_6x5"), assignment=assignment),
         cp.NetLogoCondition("target: specialized 6x5", base, export=as_export(refs["specialized"], "specialized_6x5"), assignment=assignment),
     ] + [cp.NetLogoCondition(label, base, export=exp, assignment=assignment) for label, exp in exports.items()]
+    controls = exclusion_controls(exports, refs) if args.exclusion_controls else {}
+    conditions += [cp.NetLogoCondition(name, base, export=as_export(binary, slug(name)), assignment=assignment)
+                   for name, (binary, *_) in controls.items()]
 
     print(f"{len(conditions)} conditions x {args.seeds} seeds x {args.ticks} ticks = {len(conditions) * args.seeds} runs; "
           f"roles onto abilities: {args.mapping}; agents per role {assignment.role_counts(100)}, opportunities per type {assignment.type_counts(100)}")
@@ -197,7 +233,7 @@ def main() -> None:
 
     t0 = time.time()
     runs = cp.run_netlogo_conditions(conditions, seeds=range(args.seeds), ticks=args.ticks, workers=args.workers)
-    tag = f"{args.mapping}_{args.ticks}t_{args.seeds}s"
+    tag = f"{args.mapping}_{args.ticks}t_{args.seeds}s" + ("_controls" if args.exclusion_controls else "")
     runs.to_csv(out_dir / f"runs_{tag}.csv", index=False)
     print(f"{len(runs)} runs in {(time.time() - t0) / 60:.1f} min")
 
@@ -217,6 +253,12 @@ def main() -> None:
     for rule in ("rule: competent hierarchy", "rule: incompetent hierarchy", "target: hierarchical 6x5", "target: specialized 6x5"):
         cmpm = cp.compare_metrics(runs[runs.condition.isin([baseline, rule])], METRICS, baseline, paired_on="seed")
         tests.append(cmpm[cmpm.condition == rule].assign(reference=baseline))
+    for name, (_, label, target, _) in controls.items():
+        # the LLM structure against its control (same groups shut out), and the control against the full form
+        for cond, ref in ((label, name), (name, target)):
+            chi = cp.style_chi_square(runs, cp.NETLOGO_STYLES, conditions=[ref, cond])
+            cmpm = cp.compare_metrics(runs[runs.condition.isin([ref, cond])], METRICS, ref, paired_on="seed")
+            tests.append(cmpm[cmpm.condition == cond].assign(reference=ref, chi2=chi.chi2, chi2_p=chi.p_value, cramers_v=chi.cramers_v))
     tests = pd.concat(tests, ignore_index=True)
     p = tests["p_value"].to_numpy(dtype=float)
     finite = np.isfinite(p)
@@ -232,6 +274,7 @@ def main() -> None:
     lines = [f"# NetLogo transfer check ({tag})", "",
              f"{len(conditions)} conditions, seeds 0 to {args.seeds - 1}, {args.ticks} ticks, flights on, availability and access unrestricted, roles onto abilities: {args.mapping}.", "",
              f"Chi-square over all conditions (resolutions vs. oversights): chi2 = {chi_all.chi2:.1f}, df = {chi_all.dof}, p = {chi_all.p_value:.3g}, V = {chi_all.cramers_v:.3f}", "",
+             *(["Exclusion controls: " + "; ".join(f"`{n}` shuts out {x}" for n, (_, _, _, x) in controls.items()), ""] if controls else []),
              "## Means per condition", "", summary.round(3).to_markdown(), "",
              "## Styles (pooled)", "", styles.round(3).to_markdown(), "",
              "## Tests (paired by seed; Wilcoxon; Holm over all rows)", "",
