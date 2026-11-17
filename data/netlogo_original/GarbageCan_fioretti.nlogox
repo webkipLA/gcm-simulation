@@ -1,0 +1,3024 @@
+<?xml version="1.0" encoding="utf-8"?>
+<model version="NetLogo 7.0.4" snapToGrid="false">
+  <code><![CDATA[;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; THE GARBAGE CAN MODEL ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;; This is free software. It is distributed with GNU Public Licence GPLv3 ;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Variables declaration ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+globals [
+          ;; Kinds of decision-making and kinds of flights.
+          num-oversights ;; cumulative number of decisions by oversight
+          num-blocked-oversights ;; cumulative number of decisions by oversight following a blocked decision process
+          num-resolutions ;; cumulative number of decisions by resolution
+          num-blocked-resolutions ;; cumulative number of decisions by resolution following a blocked decision process
+          num-postponements ;; cumulative number of flights by postponement
+          num-buck-passings ;; cumulative number of flights by buck-passing
+
+          ;; Blocked decisions, postponed problems, passed problems.
+          num-blocked ;; cumulative number of blocked decision processes
+          duration-blocked ;; cumulative duration of blocked decision processes
+          ave-duration-blocked ;; average duration of blocked decision processes
+          num-postponed ;; cumulative number of postponed problems
+          duration-postponed ;; cumulative duration of pairs opportunity-problem
+          ave-duration-postponed ;; average duration of pairs opportunity-problem
+          num-passed ;; cumulative number of passed problems
+          duration-passed ;; cumulative duration of pairs participant-problem
+          ave-duration-passed ;; average duration of pairs participant-problem
+
+          ;; Indicators of decision-making by oversight and resolution at different hierarchical levels.
+          hierarchy-divide ;; splits opportunities into two unequal portions, top and bottom of the hierarchy.
+          num-oversights-high ;; cumulative number of oversights making use of opportunities at high hierarchical levels
+          num-oversights-low ;; cumulative number of oversights making use of opportunities at low hierarchical levels
+          num-resolutions-high ;; cumulative number of resolutions making use of opportunities at high hierarchical levels
+          num-resolutions-low ;; cumulative number of resolutions making use of opportunities at low hierarchical levels
+        ]
+
+patches-own [pcolor-white-since] ;; since when it hosts a blocked decision process
+turtles-own [blocked?] ;; whether an agent is allowed to move
+
+breed [solutions solution]
+breed [opportunities opportunity]
+breed [participants participant]
+breed [problems problem]
+
+participants-own [ ability ;; the ability of participants
+                   last-movement ;; the last time this participant moved
+                   charged? ;; eventually, this participant is charged...
+                   with-problem ;; ...with this problem
+                 ]
+opportunities-own [ last-movement ;; the last time this opportunity moved
+                    charged? ;; eventually, this opportunity is charged...
+                    with-problem ;; ...with this problem
+                  ]
+solutions-own [ efficiency ;; the efficiency of solutions
+              ]
+problems-own [ difficulty ;; the difficulty of problems
+               postponed? ;; eventually, this problem has been postponed...
+               to-opportunity ;; ...to this opportunity
+               passed? ;; eventually, this problem has been passed...
+               to-participant ;; ...to this participant
+               since ;; when the flight began
+             ]
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; INDEX OF PROCEDURES ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;;;;; to setup
+;;;;;; - to assign-importance
+;;;;;; - to show-labels
+;;;;;; end
+;;;;;;
+;;;;;; to go
+;;;;;;
+;;;;;; - to decision-making
+;;;;;;   - to postpone
+;;;;;;   - to pass-the-buck
+;;;;;;   - to-report free-spot
+;;;;;;   end
+;;;;;;
+;;;;;; - to move
+;;;;;;   - to-report opportunities-can-move
+;;;;;;   - to-report participant-can-move
+;;;;;;   - to-report solution-can-move
+;;;;;;   - to-report problem-can-move
+;;;;;;   end
+;;;;;;
+;;;;;; - to monitor
+;;;;;;   - to write-oversights                      
+;;;;;;   - to write-resolutions                
+;;;;;;   - to write-postponements              
+;;;;;;   - to write-buck-passings             
+;;;;;;   - to actors-involved           
+;;;;;;   - to write-survivors  
+;;;;;;   end
+;;;;;;
+;;;;;; - to print-output                                    
+;;;;;;
+;;;;;; end
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;; What is done when the "Setup" button is pressed ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+to setup
+  clear-all
+  reset-ticks
+
+  ;; Initializes the number of kinds of decision-making and flights.
+  set num-oversights 0
+  set num-blocked-oversights 0
+  set num-resolutions 0
+  set num-blocked-resolutions 0
+  set num-postponements 0
+  set num-buck-passings 0
+
+  ;; Initializes the number of blocked decisions, of postponed problems and of passed problems.
+  ;; Initializes the duration of blocked decisions, of postponed problems and of passed problems.
+  set num-blocked 0
+  set duration-blocked 0
+  set num-postponed 0
+  set duration-postponed 0
+  set num-passed 0
+  set duration-passed 0
+
+  ;; Initializes the counters of oversights and resolutions at high and low hierarchical levels.
+  ifelse (decision-structure != "organized anarchy" or availability-structure != "organized anarchy" or access-structure != "organized anarchy") [
+    set num-oversights-high 0
+    set num-oversights-low 0
+    set num-resolutions-high 0
+    set num-resolutions-low 0
+  ] [
+    set num-oversights-high "N/A"
+    set num-oversights-low "N/A"
+    set num-resolutions-high "N/A"
+    set num-resolutions-low "N/A"
+  ]
+
+  ;; Initializes the counter of how long a decision process stays blocked.
+  ask patches
+    [set pcolor-white-since 0]
+
+  ;; Creates the agents that are initially present in the organization.
+  ;; The sequence of creation is such that the variable "who" takes the following values:
+  ;; - For opportunities: from 0 to (number-of-opportunities - 1). This measures their importance.
+  ;; - For participants: from number-of-opportunities to (number-of-opportunities + number-of-participants - 1)
+  ;; - For solutions: from (number-of-opportunities + number-of-participants) to (number-of-opportunities + number-of-participants + number-of-solutions - 1)
+  ;; - For problems: from (number-of-opportunities + number-of-participants + number-of-solutions) to (number-of-opportunities + number-of-participants + number-of-solutions + number-of-problems - 1)
+  ;; Opportunity with who=0 is the least important. Opportunity with who=(number-of-opportunities - 1) is the most important.
+  set-default-shape opportunities "opportunity"
+  create-opportunities number-of-opportunities  ;; creates the choice opportunities and initializes their variables
+  [
+    setxy random world-width random world-height
+    set last-movement 0
+    set blocked? false
+    set charged? false
+    set with-problem nobody
+  ]
+  set-default-shape participants "participant"
+  create-participants number-of-participants  ;; creates the participants and initializes their variables
+  [
+    setxy random world-width random world-height
+    set ability random-float (max-ability - min-ability) + min-ability
+    set last-movement 0
+    set blocked? false
+    set charged? false
+    set with-problem nobody
+  ]
+  set-default-shape solutions "solution"
+  create-solutions number-of-solutions  ;; creates the solutions and initializes their variables
+  [
+    setxy random world-width random world-height
+    set efficiency random-float (max-efficiency - min-efficiency) + min-efficiency
+    set blocked? false
+  ]
+  set-default-shape problems "problem"
+  create-problems number-of-problems  ;; creates the problems and initializes their variables
+  [
+    setxy random world-width random world-height
+    set difficulty random-float (max-difficulty - min-difficulty) + min-difficulty
+    set blocked? false
+    set postponed? false
+    set to-opportunity nobody
+    set passed? false
+    set to-participant nobody
+    set since 0
+  ]
+  
+  ;; If a hierarchy is there, separate high-importance from low-importance opportunities
+  if (decision-structure != "organized anarchy" or availability-structure != "organized anarchy" or access-structure != "organized anarchy")
+    [assign-importance]
+    
+  ;; Show labels aside participants, solutions and problems
+  if (show-details?)
+    [show-labels]
+end
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;; Separates high-importance from low-importance opportunities ;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+to assign-importance
+  ;; Identifies the number of levels of a fictional hierarchy large enough to entail all opportunities
+  let l 1  ;; hierarchical level (1 denotes the highest level)
+  let m 1  ;; opportunities added at each new level
+  let n 1  ;; total number of opportunities of this hierarchy (can be greater than number-of-opportunities)
+  while [n < number-of-opportunities] [
+    set n (n + span-of-control * m)
+    set m (span-of-control * m)
+    set l (l + 1)
+  ]
+  ;; Computes the number of opportunities in the superior half of this hierarchy
+  let mid-hierarchy int (l / 2)
+  set l 1
+  set m 1
+  set n 1
+  while [l < mid-hierarchy] [
+    set n (n + span-of-control * m)
+    set m (span-of-control * m)
+    set l (l + 1)
+  ]
+  ;; Sets n as the hierarchy divide. Opportunities with "who" lower than n are at the top of the hierarchy.
+  set hierarchy-divide n
+end
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;; Writes labels on the screen and information on decision-making on the command center ;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+to show-labels
+  ask participants [
+    set label round ability
+  ]
+  ask problems [
+    set label round difficulty
+  ]
+  ask solutions [
+    set label precision efficiency 1
+  ]
+end
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; What is done when the "Go Step" button is pressed and what is repeated at each step when the "Go Until" button is pressed ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; - Tick forward;
+;; - Agents make decisions;
+;; - Agents move;
+;; - Observe the model.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+to go
+  
+  ;; Stop conditions
+  if ((stop-at > 0) and (ticks = stop-at)) [                                         
+    if (print?)                                                       
+      [print-output]                                           
+    if (show-details?)
+      [write-survivors]
+    stop
+  ]
+
+  ;; Step forward
+  tick
+
+  ;; Resolution, Oversight, Flight
+  decision-making
+
+  ;; Isolated agents, pairs opportunity-problem, pairs participant-problem.
+  move
+  
+  ;; Monitor status of currently blocked decisions, as well as postponed and buck-passed problems
+  monitor
+end
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; DECISION - MAKING ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+to decision-making
+  ;; Though decisions are made by participants, it is more convenient to let patches operate.
+  ask patches [
+    ;; Resets lime and sky-blue patches to black.
+    ifelse (any? problems-here with [postponed? or passed?])
+      [set pcolor brown] [
+        if (pcolor != white)
+          [set pcolor black]
+      ]
+    ;; If there is at least one participant, one choice opportunity and one solution, then a decision is made.
+    if (any? participants-here and any? opportunities-here and any? solutions-here) [
+      ;; Agents paired because of a flight enter the decision process on equal status with the others.
+      ask participants-here [
+        if (charged?) [
+          set charged? false
+          set with-problem nobody
+        ]
+      ]
+      ask opportunities-here [
+        if (charged?) [
+          set charged? false
+          set with-problem nobody
+        ]
+      ]
+      ask problems-here [
+        if (postponed?) [
+          set postponed? false
+          set to-opportunity nobody
+        ]
+        if (passed?) [
+          set passed? false
+          set to-participant nobody
+        ]
+      ]
+      ;; If there are problems as well, either they are resolved if their ability is sufficient or all agents stay put until another opportunity or another participant passes by and takes a problem away.
+      ifelse (any? problems-here) [ 
+        
+        ;; RESOLUTION
+        ;; If the sum of the ability of all participants on a patch, multiplied by the efficiency of the most efficient solution on the
+        ;; same patch, is greater or equal than the sum of the difficulty of all problems on the same patch, then decisions are made by resolution.
+        ifelse ((sum [ability] of participants-here)*([efficiency] of max-one-of solutions-here [efficiency]) >= (sum [difficulty] of problems-here)) [
+          set num-resolutions num-resolutions + 1
+          ;; A decision by resolution is marked by a green square. The counters of the duration of blocked decisions and flying pairs are reset.
+          if (pcolor = white)
+            [set num-blocked-resolutions num-blocked-resolutions + 1]
+          set pcolor lime
+          set pcolor-white-since 0
+          ask problems-here [set since 0]
+          ;; Write information on the control center.
+          if (show-details?)
+            [write-resolutions]
+          ;; The indicators of the percentages of resolutions on low and high hierarchical levels.
+          ;; Lower-numbered opportunities are the most important.
+          if (decision-structure != "organized anarchy" or availability-structure != "organized anarchy" or access-structure != "organized anarchy") [
+            ask one-of opportunities-here [
+              ifelse (who <= hierarchy-divide)              
+              [set num-resolutions-high num-resolutions-high + 1]
+              [set num-resolutions-low num-resolutions-low + 1]
+            ]
+          ]
+          ;; If there are still agents on the patch, they must be free to move. This is not obvious, because they may stem from a flight.
+          ask turtles-here [
+            if (blocked?) [set blocked? false]
+          ]
+        ]
+        
+        ;; BLOCKED DECISION PROCESS
+        ;; If the ability of the participants is not sufficient to make a decision, all participants, one opportunity,
+        ;; the most efficient solution and all problems on the patch are blocked.
+        ;; Participants and problems that jump on a blocked decision process are captured, but only one opportunity and one solution stay.
+        ;; The solution and the opportunity that stay are those that were initially involved in the failed attempt at adecision by resolution.
+        ;; Eventually, a flight might enable the remaining agents to make a decision either by resolution or by oversight.
+        [
+          ask participants-here [set blocked? true]
+          if (not any? opportunities-here with [blocked? = true])
+            [ask one-of opportunities-here [set blocked? true]]
+          if (not any? solutions-here with [blocked? = true])
+            [ask max-one-of solutions-here [efficiency] [set blocked? true]]
+          ask problems-here [set blocked? true]
+          ;; A blocked decision process is marked by a white square.
+          if (pcolor != white) [
+            set pcolor white
+            set pcolor-white-since ticks
+          ]
+          
+          ;; FLIGHTS
+          ;; Either a flight by postponement or buck-passing is attempted.
+          ;; If there are the conditions for flights by postponement but not for flights by buck-passing.
+          if (postpone? and count opportunities-here > 1 and any? opportunities-here with [last-movement = (ticks - 1) and ticks > pcolor-white-since] and (buckpass? = false or not any? participants-here with [last-movement = (ticks - 1) and ticks > pcolor-white-since])) [
+            postpone
+          ]
+          ;; If there are the conditions for flights by buck-passing but not for flights by postponement.
+          if (buckpass? and count participants-here > 1 and any? participants-here with [last-movement = (ticks - 1) and ticks > pcolor-white-since] and (postpone? = false or not any? opportunities-here with [last-movement = (ticks - 1) and ticks > pcolor-white-since])) [
+            pass-the-buck
+          ]
+          ;; If there are the conditions for both flights by postponement and buck-passing.
+          if (postpone? and count opportunities-here > 1 and any? opportunities-here with [last-movement = (ticks - 1) and ticks > pcolor-white-since] and buckpass? and count participants-here > 1 and any? participants-here with [last-movement = (ticks - 1) and ticks > pcolor-white-since]) [
+            ;; Select at random either a flight by postponement or buck-passing.
+            let coin-side random 2
+            ifelse (coin-side = 0) [
+              postpone
+            ][
+              pass-the-buck
+            ]
+          ]
+        ]
+      ]
+      
+      ;; OVERSIGHT
+      ;; On the contrary, if there are no problems to be solved, decisions are made by oversight. If there are several participants,
+      ;; several solutions and several opportunities on the same patch, all participants and all solutions make a decision exploiting
+      ;; only one opportunity and making use of only one solution.
+      [
+        set num-oversights num-oversights + 1
+        ;; A decision by oversight is marked by a sky-blue square. The counter of the duration of blocked decisions is reset.
+        if (pcolor = white)
+          [set num-blocked-oversights num-blocked-oversights + 1]
+        set pcolor sky
+        set pcolor-white-since 0
+        ;; Write information on the control center
+        if (show-details?)
+          [write-oversights]
+        ;; The indicators of the percentages of oversights on low and high hierarchical levels.
+        ;; Lower-numbered opportunities are the most important opportunities.
+        let chosenOppOve one-of opportunities-here
+        if (decision-structure != "organized anarchy" or availability-structure != "organized anarchy" or access-structure != "organized anarchy") [
+          ifelse ([who] of chosenOppOve <= hierarchy-divide)
+            [set num-oversights-high num-oversights-high + 1]
+            [set num-oversights-low num-oversights-low + 1]
+        ]
+        ;; If there are still agents on the patch, they must be free to move. This is not obvious, because they may stem from a flight.
+        ask turtles-here [
+          if (blocked?) [set blocked? false]
+        ]
+      ]
+    ]
+  ]
+end
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Flights by postponement ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+to postpone
+  ;; One problem and one opportunity are singled out.
+  let which-problem max-one-of problems-here [difficulty]
+  let which-opportunity max-one-of opportunities-here [last-movement]
+  ;; The most difficult problem is attached to the latest-arriving opportunity.
+  ask which-opportunity [
+    set blocked? false
+    set charged? true
+    set with-problem which-problem
+    move-to free-spot
+  ]
+  ;; The latest-arriving opportunity is attached to the most difficult problem.
+  ask which-problem [
+    set blocked? false
+    set postponed? true
+    set to-opportunity which-opportunity
+    set since ticks
+    move-to to-opportunity
+  ]
+  ;; The new flight is recorded.
+  set num-postponements num-postponements + 1
+  ;; Write information on the control center.
+  if (show-details?)
+    [write-postponements]
+end
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Flights by buck-passing ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+to pass-the-buck
+  ;; One problem and one participant are singled out.
+  let which-problem max-one-of problems-here [difficulty]
+  let which-participant max-one-of participants-here [last-movement]
+  ;; The most difficult problem is attached to the latest-coming participant.
+  ask which-participant [
+    set blocked? false
+    set charged? true
+    set with-problem which-problem
+    move-to free-spot
+  ]
+  ;; The latest-coming participant is attached to the most difficult problem.
+  ask which-problem [
+    set blocked? false
+    set passed? true
+    set to-participant which-participant
+    set since ticks
+    move-to to-participant
+  ]
+  ;; The new flight is recorded.
+  set num-buck-passings num-buck-passings + 1
+  ;; Write information on the control center.
+  if (show-details?)
+    [write-buck-passings]
+end
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; A procedure employed by flights ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+to-report free-spot
+  let which-patch nobody
+  while [which-patch = nobody] [
+    ask one-of patches with [pcolor = black] [
+      if (any? turtles-here = false) [
+        set which-patch self      
+      ]
+    ]
+  ]
+  report which-patch
+end
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; AGENTS MOVE ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+to move
+  ;; Agents are only allowed to turn by multiples of 90 degrees.
+  ;; The movement of participants may be constrained by the decision structure.
+  ;; The movement of solutions may be constrained by the availability structure.
+  ;; The movement of problems may be constrained by the access structure.
+  ;; The movement of opportunities may be constrained by the decision structure, the availability structure and the access structure.
+
+  ;; Flying couples move first. Their movements take account of the positions of other agents.
+  ask patches [
+    ;; Paired problems and opportunities move together.
+    ;; Opportunities must consider where they are allowed to move. Problems just follow opportunities.
+    ask opportunities-here with [not blocked? and charged?] [
+      set heading ((random 4) * 90)
+      let initialheading heading
+      let stop? false
+      while [stop? = false] [
+        if (pcolor = brown)
+          [set pcolor black]
+        move-to patch-ahead 1
+        set last-movement ticks
+        set pcolor brown
+        set stop? true
+        set heading ((heading + 90) mod 360)
+        if (heading = initialheading)
+          [set stop? true]
+      ]
+    ]
+    ask problems-here with [not blocked? and postponed? and to-opportunity != nobody] [
+      move-to to-opportunity
+    ]
+    ;; Paired problems and participants move together.
+    ;; Participants must consider where they are allowed to move. Problems just follow participants.
+    ask participants-here with [not blocked? and charged?] [
+      set heading ((random 4) * 90)
+      let initialheading heading
+      let stop? false
+      while [stop? = false] [
+        if (participant-can-move) [
+          if (pcolor = brown)
+            [set pcolor black]
+          move-to patch-ahead 1
+          set last-movement ticks
+          set pcolor brown
+          set stop? true
+        ]
+        set heading ((heading + 90) mod 360)
+        if (heading = initialheading)
+          [set stop? true]
+      ]
+    ]
+    ask problems-here with [not blocked? and passed? and to-participant != nobody] [
+      move-to to-participant
+    ]
+  ]
+
+  ;; When no hierarchy is there, all agents move in different, randomly chosen directions.
+  ;; When a hierarchy is there, opportunities move still freely, and before other agents.
+  ;; By contrast, participants must take account of the decision structure, solutions take account of the availability structure and problems
+  ;; take account of the access structure in order to approach opportunities.
+  ask opportunities with [not blocked? and not charged?] [
+    set heading ((random 4) * 90)
+    if (opportunity-can-move) [
+      move-to patch-ahead 1
+      set last-movement ticks
+    ]
+  ]
+  ask participants with [not blocked? and not charged?] [
+    set heading ((random 4) * 90)            
+    if (participant-can-move) [
+      move-to patch-ahead 1
+      set last-movement ticks
+    ]
+  ]
+  ask solutions with [not blocked?] [
+    set heading ((random 4) * 90)
+    if (solution-can-move) [
+      move-to patch-ahead 1
+    ]
+  ]
+  ask problems with [not blocked? and not postponed? and not passed?] [
+    set heading ((random 4) * 90)
+    if (problem-can-move) [
+      move-to patch-ahead 1
+    ]
+  ]
+
+end
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Conditions for agents to move ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+to-report opportunity-can-move
+  let can? true
+  
+  ;; Opportunities can not move towards certain participants
+  if (decision-structure = "competent hierarchy") [
+    ifelse (who <= hierarchy-divide) [ ; if this opportunity is very important (Note: lower "who" values = greater importance)
+      ; it cannot move towards unable participants
+      if (any? (participants-on patch-ahead 1) with [ability < (max-ability - min-ability) / 2])
+        [set can? false]
+    ][ ; if this opportunity is not very important
+      ; it cannot move towards able participants
+      if (any? (participants-on patch-ahead 1) with [ability > (max-ability - min-ability) / 2])
+        [set can? false]
+    ]
+  ]  
+  if (decision-structure = "incompetent hierarchy") [
+    ifelse (who <= hierarchy-divide) [ ; if this opportunity is very important (Note: lower "who" values = greater importance)
+      ; it cannot move towards able participants
+      if (any? (participants-on patch-ahead 1) with [ability > (max-ability - min-ability) / 2])
+        [set can? false]
+    ][ ; if this opportunity is not very important
+      ; it cannot move towards unable participants
+      if (any? (participants-on patch-ahead 1) with [ability < (max-ability - min-ability) / 2])
+        [set can? false]
+    ]
+  ]
+
+  ;; Opportunities can not move towards certain solutions
+  if (availability-structure = "competent hierarchy") [
+    ifelse (who <= hierarchy-divide) [ ; if this opportunity is very important (Note: lower "who" values = greater importance)
+      ; it cannot move towards inefficient solutions
+      if (any? (solutions-on patch-ahead 1) with [efficiency < (max-efficiency - min-efficiency) / 2])
+        [set can? false]
+    ][ ; if this opportunity is not very important
+      ; it cannot move towards efficient solutions
+      if (any? (solutions-on patch-ahead 1) with [efficiency > (max-efficiency - min-efficiency) / 2])
+        [set can? false]
+    ]
+  ]  
+  if (availability-structure = "incompetent hierarchy") [
+    ifelse (who <= hierarchy-divide) [ ; if this opportunity is very important (Note: lower "who" values = greater importance)
+      ; it cannot move towards efficient solutions
+      if (any? (solutions-on patch-ahead 1) with [efficiency > (max-efficiency - min-efficiency) / 2])
+        [set can? false]
+    ][ ; if this opportunity is not very important
+      ; it cannot move towards inefficient solutions
+      if (any? (solutions-on patch-ahead 1) with [efficiency < (max-efficiency - min-efficiency) / 2])
+        [set can? false]
+    ]
+  ]
+
+  ;; Opportunities can not move towards certain problems
+  if (access-structure = "competent hierarchy") [
+    ifelse (who <= hierarchy-divide) [ ; if this opportunity is very important (Note: lower "who" values = greater importance)
+      ; it cannot move towards simple problems
+      if (any? (problems-on patch-ahead 1) with [difficulty < (max-difficulty - min-difficulty) / 2])
+        [set can? false]
+    ][ ; if this opportunity is not very important
+      ; it cannot move towards difficult problems
+      if (any? (problems-on patch-ahead 1) with [difficulty > (max-difficulty - min-difficulty) / 2])
+        [set can? false]
+    ]
+  ]  
+  if (access-structure = "incompetent hierarchy") [
+    ifelse (who <= hierarchy-divide) [ ; if this opportunity is very important (Note: lower "who" values = greater importance)
+      ; it cannot move towards difficult problems
+      if (any? (problems-on patch-ahead 1) with [difficulty > (max-difficulty - min-difficulty) / 2])
+        [set can? false]
+    ][ ; if this opportunity is not very important
+      ; it cannot move towards simple problems
+      if (any? (problems-on patch-ahead 1) with [difficulty < (max-difficulty - min-difficulty) / 2])
+        [set can? false]
+    ]
+  ]
+  
+  report can?
+end
+  
+to-report participant-can-move
+  let can? true
+  
+  if (decision-structure = "competent hierarchy") [
+    ifelse (ability > (max-ability - min-ability) / 2) [ ; if this participant has high ability
+      ; it cannot move towards unimportant opportunities
+      if (any? (opportunities-on patch-ahead 1) with [who > hierarchy-divide])  ; Note: lower "who" values = greater importance
+        [set can? false]
+    ][ ; if this participant has low ability
+      ; it cannot move towards important opportunities
+      if (any? (opportunities-on patch-ahead 1) with [who <= hierarchy-divide])  ; Note: lower "who" values = greater importance
+        [set can? false]      
+    ]
+  ]
+  
+  if (decision-structure = "incompetent hierarchy") [
+    ifelse (ability > (max-ability - min-ability) / 2) [ ; if this participant has high ability
+      ; it cannot move towards important opportunities
+      if (any? (opportunities-on patch-ahead 1) with [who <= hierarchy-divide])  ; Note: lower "who" values = greater importance
+        [set can? false]
+    ][ ; if this participant has low ability
+      ; it cannot move towards unmportant opportunities
+      if (any? (opportunities-on patch-ahead 1) with [who > hierarchy-divide])  ; Note: lower "who" values = greater importance
+        [set can? false]      
+    ]
+  ]
+  
+  report can?
+end
+
+to-report solution-can-move
+  let can? true
+  
+  if (availability-structure = "competent hierarchy") [
+    ifelse (efficiency > (max-efficiency - min-efficiency) / 2) [ ; if this solution is efficient
+      ; it cannot move towards unimportant opportunities
+      if (any? (opportunities-on patch-ahead 1) with [who > hierarchy-divide])  ; Note: lower "who" values = greater importance
+        [set can? false]
+    ][ ; if this solution is inefficient
+      ; it cannot move towards important opportunities
+      if (any? (opportunities-on patch-ahead 1) with [who <= hierarchy-divide])  ; Note: lower "who" values = greater importance
+        [set can? false]      
+    ]
+  ]
+  
+  if (availability-structure = "incompetent hierarchy") [
+    ifelse (efficiency > (max-efficiency - min-efficiency) / 2) [ ; if this solution is efficient
+      ; it cannot move towards important opportunities
+      if (any? (opportunities-on patch-ahead 1) with [who <= hierarchy-divide])  ; Note: lower "who" values = greater importance
+        [set can? false]
+    ][ ; if this solution is inefficient
+      ; it cannot move towards unimportant opportunities
+      if (any? (opportunities-on patch-ahead 1) with [who > hierarchy-divide])  ; Note: lower "who" values = greater importance
+        [set can? false]      
+    ]
+  ]
+  
+  report can?
+end
+
+to-report problem-can-move
+  let can? true
+  
+  if (access-structure = "competent hierarchy") [
+    ifelse (difficulty > (max-difficulty - min-difficulty) / 2) [ ; if this is a difficult problem
+      ; it cannot move towards unimportant opportunities
+      if (any? (opportunities-on patch-ahead 1) with [who > hierarchy-divide]) ; Note: lower "who" values = greater importance
+        [set can? false]
+    ][ ; if this is a simple problem
+      ; it cannot move towards important opportunities
+      if (any? (opportunities-on patch-ahead 1) with [who <= hierarchy-divide]) ; Note: lower "who" values = greater importance
+        [set can? false]      
+    ]
+  ]
+  
+  if (access-structure = "incompetent hierarchy") [
+    ifelse (difficulty > (max-difficulty - min-difficulty) / 2) [ ; if this is a difficult problem
+      ; it cannot move towards important opportunities
+      if (any? (opportunities-on patch-ahead 1) with [who <= hierarchy-divide]) ; Note: lower "who" values = greater importance
+        [set can? false]
+    ][ ; if this is a simple problem
+      ; it cannot move towards unmportant opportunities
+      if (any? (opportunities-on patch-ahead 1) with [who > hierarchy-divide]) ; Note: lower "who" values = greater importance
+        [set can? false]      
+    ]
+  ]
+  
+  report can?
+end
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;; Monitor status of currently blocked decisions, as well as postponed and buck-passed problems ;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+to monitor
+  
+  if (any? patches with [pcolor = white]) [
+    ;; Number of blocked decision processes.
+    set num-blocked num-blocked + count patches with [pcolor = white]
+    ;; Duration of blocked decision processes.
+    let duration-blocked-now 0
+    ask patches with [pcolor = white] [
+      set duration-blocked-now duration-blocked-now + (ticks - pcolor-white-since)
+    ]
+    set duration-blocked-now duration-blocked-now / count patches with [pcolor = white]
+    set duration-blocked duration-blocked + duration-blocked-now
+    set ave-duration-blocked duration-blocked / num-blocked
+  ]
+  
+  if (any? problems with [postponed?]) [
+    ;; Number of postponed problems.
+    set num-postponed num-postponed + count opportunities with [charged?]
+    ;; Duration of postponed problems
+    let duration-postponed-now 0
+    ask problems with [postponed?] [
+      set duration-postponed-now duration-postponed-now + (ticks - since)
+    ]
+    set duration-postponed-now duration-postponed-now / count problems with [postponed?]
+    set duration-postponed duration-postponed + duration-postponed-now
+    set ave-duration-postponed duration-postponed / num-postponed
+  ]
+  
+  if (any? problems with [passed?]) [
+    ;; Number of passed problems.
+    set num-passed num-passed + count participants with [charged?]
+    ;; Duration of passed problems.
+    let duration-passed-now 0
+    ask problems with [passed?] [
+      set duration-passed-now duration-passed-now + (ticks - since)
+    ]
+    set duration-passed-now duration-passed-now / count problems with [passed?]
+    set duration-passed duration-passed + duration-passed-now
+    set ave-duration-passed duration-passed / num-passed
+  ]
+end
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Writes in the Command Center ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;; details about each decision by either oversight or resolution, ;;;;;;;;;;;;;;;;;;;;;; 
+;;;;;;;;;;;;;;;;;;; as well as each flight by either postponement or buck-passing ;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+to write-oversights
+  type "N. OVERSIGHTS: "
+  write num-oversights
+  actors-involved
+end
+
+to write-resolutions
+  type "N. RESOLUTIONS: "
+  write num-resolutions
+  actors-involved
+end
+
+to write-postponements
+  type "N. FLIGHTS BY POSTPONEMENT: "
+  write num-postponements
+  actors-involved
+end
+
+to write-buck-passings
+  type "N. FLIGHTS BY BUCK-PASSING: "
+  write num-buck-passings
+  actors-involved
+end
+
+to actors-involved
+  ask participants-here [
+    type "      Who:"                                                 
+    write who
+    type ". One of:"
+    write number-of-participants
+    type " participants. Ability:"
+    write ability
+    type ". Charged?"
+    write charged?
+    type ". With problem:"
+    write with-problem
+    type "."
+  ]
+  ask opportunities-here [
+    type "      Who:"                                               
+    write who
+    type ". One of:"
+    write number-of-opportunities
+    type " opportunities."
+    type " Charged?"
+    write charged?
+    type ". With problem:"
+    write with-problem
+    type "."
+  ]
+  ask solutions-here [
+    type "      Who:"     
+    write who
+    type ". One of:"
+    write number-of-solutions
+    type " solutions. Efficiency:"
+    write efficiency
+    type "."
+  ]
+  ask problems-here [
+    type "      Who:"  
+    write who
+    type ". One of:"
+    write number-of-problems
+    type " problems. Difficulty:"
+    write difficulty
+    type ". Postponed?"
+    write postponed?
+    type ". To opportunity:"
+    write to-opportunity
+    type ". Passed?"
+    write passed?
+    type ". To participant:"
+    write to-participant
+    type "."
+  ]
+  print " "
+end
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;; At simulation end, writes in the Command Center ;;;;;;;;;;;
+;;;;;;;;;;;;;; information about surviving agents ;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+to write-survivors
+  print ""
+  type "SURVIVING OPPORTUNITIES"
+  print ""
+  ifelse (any? opportunities) [
+    type "Identities:"
+    ask opportunities [ write who ]
+    print " "
+  ]
+  [ type "none" ]
+  type "SURVIVING PARTICIPANTS"
+  print ""
+  ifelse (any? participants) [
+    type "Identities:"
+    ask participants [ write (who - number-of-opportunities) ]
+    print " "
+  ]
+  [ type "none" ]
+  type "SURVIVING SOLUTIONS"
+  print ""
+  ifelse (any? solutions) [
+    type "Identities:"
+    ask solutions [ write (who - number-of-opportunities - number-of-participants) ]
+    print " "
+  ]
+  [ type "none" ]
+  type "SURVIVING PROBLEMS"
+  print ""
+  ifelse (any? problems) [
+    type "Identities:"
+    ask problems [ write (who - number-of-opportunities - number-of-participants - number-of-solutions) ]
+    print " "
+  ]
+  [ type "none" ]
+  print ""
+end
+                                                                                                             
+                                                                                                             
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;             
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;; PRINT INFORMATION AT SIMULATION END ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;             
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;             
+                                                                                                             
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;  
+;;;;;;;;;;;;;;;;;;;;;;;;; Prints the following ins separate output file;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;  
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;  
+;; - The cumulative number of decisions by oversight;                                                        
+;; - The cumulative number of decisions by resolution;                                                       
+;; - The cumulative number of blocked decision processes followed by an oversight;                           
+;; - The cumulative number of blocked decision processes followed by a resolution;                           
+;; - The cumulative number of flights by postponement;                                                       
+;; - The cumulative number of flights by buckpassing;                                                        
+;; - The average duration of blocked decision processes;                                                     
+;; - The average duration of postponements;                                                                  
+;; - The average duration of buck-passings;                                                                  
+;; - The cumulative number of oversights at high hierarchical level;                                         
+;; - The cumulative number of oversights at low hierarchical level;                                          
+;; - The cumulative number of resolutions at high hierarchical level;                                        
+;; - The cumulative number of resolutions at low hierarchical level;                                         
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;  
+                                                                                                             
+to print-output                                   
+  file-open "oversights.txt"                      
+  file-print num-oversights                       
+  file-close                                      
+  file-open "resolutions.txt"                     
+  file-print num-resolutions                      
+  file-close                                      
+  file-open "blocked-followed-by-oversights.txt"  
+  file-print num-blocked-oversights               
+  file-close                                      
+  file-open "blocked-followed-by-resolutions.txt" 
+  file-print num-blocked-resolutions              
+  file-close                                      
+  file-open "postponements.txt"                   
+  file-print num-postponements                    
+  file-close                                      
+  file-open "buck-passings.txt"                   
+  file-print num-buck-passings                    
+  file-close                                      
+  file-open "ave-duration-blocked.txt"            
+  file-print ave-duration-blocked                 
+  file-close                                      
+  file-open "ave-duration-postponements.txt"      
+  file-print ave-duration-postponed               
+  file-close                                      
+  file-open "ave-duration-buck-passings.txt"      
+  file-print ave-duration-passed                  
+  file-close                                      
+  if (num-oversights-high = "N/A")                
+    [set num-oversights-high 0]                   
+  file-open "oversights-high-level.txt"           
+  file-print num-oversights-high                  
+  file-close                                      
+  if (num-oversights-low = "N/A")                 
+    [set num-oversights-low 0]                    
+  file-open "oversights-low-level.txt"            
+  file-print num-oversights-low                   
+  file-close                                      
+  if (num-resolutions-high = "N/A")               
+    [set num-resolutions-high 0]                  
+  file-open "resolutions-high-level.txt"          
+  file-print num-resolutions-high                 
+  file-close                                      
+  if (num-resolutions-low = "N/A")                
+    [set num-resolutions-low 0]                   
+  file-open "resolutions-low-level.txt"           
+  file-print num-resolutions-low                  
+  file-close                                      
+end                                               ]]></code>
+  <widgets>
+    <view x="387" wrappingAllowedX="true" y="9" frameRate="30.0" minPycor="0" height="929" showTickCounter="true" patchSize="18.5" fontSize="10" wrappingAllowedY="true" width="929" tickCounterLabel="ticks" maxPycor="49" updateMode="0" maxPxcor="49" minPxcor="0"></view>
+    <button x="5" y="10" height="40" disableUntilTicks="false" forever="false" kind="Observer" width="106" display="Set Up">setup</button>
+    <slider x="6" step="10" y="111" max="500" width="180" display="number-of-participants" height="50" min="0" direction="Horizontal" default="100.0" variable="number-of-participants"></slider>
+    <slider x="6" step="10" y="165" max="500" width="180" display="number-of-solutions" height="50" min="0" direction="Horizontal" default="100.0" variable="number-of-solutions"></slider>
+    <slider x="6" step="1" y="219" max="10" width="180" display="min-ability" height="50" min="0" direction="Horizontal" default="0.0" variable="min-ability"></slider>
+    <slider x="6" step="0.1" y="273" max="1" width="180" display="min-efficiency" height="50" min="0" direction="Horizontal" default="0.0" variable="min-efficiency"></slider>
+    <slider x="190" step="10" y="165" max="500" width="189" display="number-of-problems" height="50" min="0" direction="Horizontal" default="100.0" variable="number-of-problems"></slider>
+    <slider x="190" step="1" y="219" max="10" width="189" display="max-ability" height="50" min="0" direction="Horizontal" default="10.0" variable="max-ability"></slider>
+    <slider x="190" step="0.1" y="273" max="1" width="189" display="max-efficiency" height="50" min="0" direction="Horizontal" default="1.0" variable="max-efficiency"></slider>
+    <slider x="189" step="1" y="327" max="10" width="190" display="max-difficulty" height="50" min="0" direction="Horizontal" default="10.0" variable="max-difficulty"></slider>
+    <slider x="191" step="10" y="111" max="500" width="188" display="number-of-opportunities" height="50" min="0" direction="Horizontal" default="100.0" variable="number-of-opportunities"></slider>
+    <slider x="218" step="1" y="381" max="10" width="161" display="span-of-control" height="50" min="1" direction="Horizontal" default="2.0" variable="span-of-control"></slider>
+    <switch x="112" y="381" height="50" on="true" variable="buckpass?" width="103" display="buckpass?"></switch>
+    <switch x="6" y="381" height="50" on="true" variable="postpone?" width="103" display="postpone?"></switch>
+    <slider x="6" step="1" y="327" max="10" width="180" display="min-difficulty" height="50" min="0" direction="Horizontal" default="0.0" variable="min-difficulty"></slider>
+    <chooser x="6" y="435" height="60" variable="decision-structure" current="1" width="120" display="decision-structure">
+      <choice type="string" value="organized anarchy"></choice>
+      <choice type="string" value="competent hierarchy"></choice>
+      <choice type="string" value="incompetent hierarchy"></choice>
+    </chooser>
+    <chooser x="129" y="435" height="60" variable="availability-structure" current="1" width="128" display="availability-structure">
+      <choice type="string" value="organized anarchy"></choice>
+      <choice type="string" value="competent hierarchy"></choice>
+      <choice type="string" value="incompetent hierarchy"></choice>
+    </chooser>
+    <chooser x="260" y="435" height="60" variable="access-structure" current="1" width="119" display="access-structure">
+      <choice type="string" value="organized anarchy"></choice>
+      <choice type="string" value="competent hierarchy"></choice>
+      <choice type="string" value="incompetent hierarchy"></choice>
+    </chooser>
+    <slider x="5" step="100" y="57" max="100000" width="181" display="stop-at" height="50" min="0" direction="Horizontal" default="50000.0" variable="stop-at"></slider>
+    <switch x="190" y="57" height="50" on="false" variable="show-details?" width="188" display="show-details?"></switch>
+    <monitor x="199" precision="0" y="502" height="61" fontSize="11" width="181" display="Total Resolutions">num-resolutions</monitor>
+    <monitor x="7" precision="0" y="501" height="61" fontSize="11" width="189" display="Total Oversights">num-oversights</monitor>
+    <monitor x="7" precision="17" y="815" height="60" fontSize="11" width="190" display="Currently Postponed Problems">count opportunities with [charged?]</monitor>
+    <monitor x="7" precision="17" y="627" height="60" fontSize="11" width="189" display="Oversights Low Levels">num-oversights-low</monitor>
+    <monitor x="7" precision="17" y="564" height="60" fontSize="11" width="189" display="Oversights High Levels">num-oversights-high</monitor>
+    <monitor x="200" precision="17" y="626" height="60" fontSize="11" width="179" display="Resolutions Low Levels">num-resolutions-low</monitor>
+    <monitor x="199" precision="17" y="564" height="60" fontSize="11" width="179" display="Resolutions High Levels">num-resolutions-high</monitor>
+    <monitor x="8" precision="17" y="689" height="60" fontSize="11" width="189" display="Currently Blocked Decisions">count patches with [pcolor = white]</monitor>
+    <monitor x="200" precision="17" y="689" height="60" fontSize="11" width="180" display="Ave Duration Blocked">precision ave-duration-blocked 2</monitor>
+    <monitor x="8" precision="0" y="751" height="60" fontSize="11" width="189" display="Total Postponements">num-postponements</monitor>
+    <monitor x="200" precision="0" y="752" height="60" fontSize="11" width="180" display="Total Buck-Passings">num-buck-passings</monitor>
+    <monitor x="200" precision="17" y="877" height="60" fontSize="11" width="180" display="Ave Duration Buck-Passed">precision ave-duration-passed 2</monitor>
+    <monitor x="6" precision="17" y="877" height="60" fontSize="11" width="191" display="Currently Buck-Passed Problems">count participants with [charged?]</monitor>
+    <monitor x="200" precision="17" y="814" height="60" fontSize="11" width="181" display="Ave Duration Postponed">precision ave-duration-postponed 2</monitor>
+    <button x="114" y="11" height="40" disableUntilTicks="false" forever="false" kind="Observer" width="89" display="Go Step">go</button>
+    <button x="206" y="12" height="40" disableUntilTicks="false" forever="true" kind="Observer" width="105" display="Go Until">go</button>
+    <switch x="313" y="13" height="40" on="false" variable="print?" width="66" display="print?"></switch>
+  </widgets>
+  <info><![CDATA[## WHAT IS IT?
+
+The Garbage Can Model (GCM) of Organizational Choice (Cohen, March and Olsen 1972) is a prominent model of organizational decision-making. We reproduced the original GCM in an agent-based setting, completing it with a few obvious features and updating the interpretation of its results (Fioretti and Lomi 2008a, 2008b, 2010).
+
+In the GCM, decision is made when the members of an organization apply a solution to an opportunity for making a choice. Note that solutions exist before problems, because they are provided by the organization rather than being conceived by participants (Fioretti, 2024).
+
+One key feature of the Garbage Can model is that a lot of decision-making may not solve any problem at all. For instance, choice opportunities may be used as showrooms in corporate politics rather than as occasions to solve problems. In these cases, decision is made <i>by oversight</i>. By contrast, decisions that solve problems are called decisions <i>by resolution</i>.
+
+In this process, choice opportunities take the role of "garbage cans" where solutions and problems are dumped. Hence the name of the model.
+
+The GCM can be seen as a sort of chemical reactor where participants (decision-makers, organization members), choice opportunities, solutions and problems have been dumped. Decisions are made through random meetings of these elements. The organization is the space where these agents meet.
+
+Decision-making by oversight takes place when at least one participant, at least one choice opportunity and at least one solution are on the same patch, and no problem is there. When a decision by oversight is made, the patch takes on a sky-blue color.
+
+Decision-making by resolution is more complex. Participants are endowed with a degree of ability in solving problems, solutions have a degree of efficiency and problems have a degree of difficulty. A problem is solved when a participant has sufficient ability and a sufficiently efficient solution such that their product is greater or equal to the difficulty of the problem.
+
+Specifically, a decision by resolution is made when at least one participant, at least one opportunity, at least one solution, and at least one problem are on the same patch and the sum of the abilities of the participants on that patch, multiplied by the efficiency of the most efficient solution on that patch, is greater or equal to the sum of the difficulties of the problems on that patch. The patch where a decision by resolution is made takes on a lime-green color.
+
+If the above condition is not met, then all agents on that patch are blocked and no decision can be made. In this <i>NetLogo</i> implementation of the GCM, that patch takes on a white color.
+
+Blocked participants can free themselves, or fly away from the most difficult problem involved in a blocked decision process, eventually becoming able to solve the remaining ones. There are two sorts of such <i>flights</i> in the GCM:
+
+- Participants can fly away from too difficult a problem by postponing it. In our <i>NetLogo</i> implementation, this can be accomplished if an additional opportunity walks on the patch where a decision process is blocked. The most difficult problem on the patch is coupled to the newly arrived opportunity, and the two walk away together. The patches on which they walk take on a brown color. This is called a <i>flight by postponement</i>.
+
+- Participants can fly away from too difficult a problem by passing the buck to a colleague.  In our <i>NetLogo</i> implementation, this can be accomplished if an additional participant walks on the patch where a decision process is blocked. The most difficult problem on the patch is coupled to the newly arrived participant, and the two walk away together. The patches on which they walk takes on a brown color. This sort of flight was added by Fioretti and Lomi (2010) to the original model (Cohen, March and Olsen, 1972) and is eventually called a <i>flight by buck-passing</i>.
+
+Once they got rid of the most difficult problem, the remaining agents may be able to make a decision, either by resolution or by oversight if no problem is left. Several flights may be necessary in order to dismantle a blocked decision process.
+
+
+
+
+## THE INTERFACE
+
+In this implementation of the GCM, the black  <i>NetLogo</i> world represents an organization. Participants to decision processes, or organization members, are represented as yellow homunculi. Opportunities are symbolized by orange squares. Solutions are symbolized by red circles. Problems are symbolized by violet triangles. All agents move randomly, except those that are involved in a blocked decision process.
+
+Whenever a decision by oversight is made, the underlying patch takes on a sky-blue color. Whenever a decision by resolution is made, the underlying patch takes on a lime-green color. The patch underlying a blocked decision problem takes on a white color. The patches underlying a flying couple (either a problem and an opportunity, or a problem and a participant) take on a brown color.
+
+The <b>SetUp</b> button initializes the simulation. The button <b>Go Step</b> executes one simulation step. The button <b>Go Until</b> makes it run until the number of steps specified by the slider <b>stop-at</b>. 
+
+The <b>show-details?</b> switch displays in the view each participant's ability score, each solution's efficiency score, each each problem's difficulty score. Furthermore, it prints a line of information in the Command Center each time a decision is made or a flight occurs. For each decision, the line says whether the decision was made by oversight or resolution.  For each flight, the line says whether the flight was made by postponement or by buck-passing.  In both case, it also reports which agents were involved.
+
+The organization is assumed to operate with a given number of participants, opportunities, solutions and problems. These values are set by means of the sliders <b>number-of-participants</b>, <b>number-of-opportunities</b>, <b>number-of-solutions</b> and <b>number-of-problems</b>, respectively.
+
+Participants are assigned an <i>ability</i> according to a uniform random distribution ranging from <b>min-ability</b> to <b>max-ability</b>. Solutions are assigned an <i>efficiency</i> according to a uniform random distribution ranging from <b>min-efficiency</b> to <b>max-efficiency</b>. Problems are assigned a <i>difficulty</i> according to a uniform random distribution ranging from <b>min-difficulty</b> to <b>max-difficulty</b>. 
+
+The GCM can be run on a fictional organization devoid of structure, known as the <i>organized anarchy</i>, or on a hierarchical structure obtained by ranking choice opportunities and by limiting their usage by other agents. In particular:
+
+- If <b>decision-structure</b> is set to <i> organized anarchy</i>, any participant can make decisions on any opportunity;
+
+- If <b>availability-structure</b> is set to <i>organized anarchy</i> any solution can be involved in decisions taking place on any opportunity; 
+ 
+- If <b>access-structure</b> is set to <i>organized anarchy</i> any problem can be involved in decisions taking place on any opportunity.
+
+By contrast, hierarchical structures can be obtained by ranking choice opportunities by importance (e.g., board meetings are more important than casual meetings in the cafeteria) and by specifying what choice opportunities the other agents are allowed to employ. The following arrangements can be selected:
+
+- If <b>decision-structure</b> is set to <i>competent hierarchy</i>, only the participants with greatest ability are allowed to exploit the most important opportunities;
+
+- If <b>availability-structure</b> is set to <i>competent hierarchy</i>, the solutions with greatest efficiency are made available only to the most important opportunities;
+  
+- If <b>access-structure</b> is set to <i>competent hierarchy</i>, only the problems with greatest difficulty reach the most important opportunities.
+
+The opposite, intuitively non-sensical but logically profound arrangement is one where the least able participants sit on top of the hierarchy, facing the easiest problems by means of the least efficient solutions:
+
+- If <b>decision-structure</b> is set to <i>incompetent hierarchy</i>, only the participants with lowest ability are allowed to exploit the most important opportunities;
+
+- If <b>availability-structure</b> is set to <i>incompetent hierarchy</i>, only the solutions with smallest efficiency are made available to the most important opportunities;
+  
+- If <b>access-structure</b> is set to <i>incompetent hierarchy</i>, only the problems with smallest difficulty reach the most important opportunities.
+
+The switches <b>postpone?</b> and <b>buck-pass</b> enable flights by postponement and buck-passing, respectively. The slider <b>span-of-control</b> allows to determine how steep the organizational pyramid is.
+
+
+Top to bottom and left to right, the following monitors keep track of the simulation:
+
+- <b>Total Resolutions</b>: The cumulative number of decisions by resolution;
+
+- <b>Total Oversights</b>: The cumulative number of decisions by oversight;
+
+- <b>Oversights High Levels</b>: The cumulative number of oversights high hierarchical levels;
+
+- <b>Resolutions High Levels</b>: The cumulative number of resolutions at high hierarchical levels;
+
+- <b>Oversights Low Levels</b>: The cumulative number of oversights at low hierarchical levels;
+
+- <b>Resolutions Low Levels</b>: The cumulative number of resolutions at low hierarchical levels;
+
+- <b>Currently Blocked Decisions</b>: The  current number of blocked decision processes;
+
+- <b>Ave Duration Blocked</b>: The average duration of blocked decision processes;
+
+- <b>Total Postponements</b>: The cumulative number of flights by postponement;
+
+- <b>Total Buck-Passings</b>: The cumulative number of flights by buck-passing;
+
+- <b>Currently Postponed Problems</b>: The current number of postponed problems;
+
+- <b>Ave Duration Postponed</b>: The average duration of postponements;
+
+- <b>Currently Buck-Passed Problems</b>: The current number of passed problems;
+
+- <b>Ave Duration Buck-Passed</b>: The average duration of buck-passings;
+
+
+
+
+## HOW TO USE IT
+
+The population of participants, opportunities, solutions and problems should collectively not exceed 1,000 units, unless the simulation space is enlarged. Conversely, at least a few tens of each breed are needed in order to obtain interesting outcomes.
+
+With hierarchical decision structures, availability structures or access structures, the number of decisions and particularly the number of decisions by resolution tends to be small. Thus, it is advisable to run the model with many opportunities, many problems, sufficiently high values of participant ability, sufficiently high values of solution efficiency and sufficiently low values of problem difficulty.
+
+Reliable outcomes can be obtained by selecting the following default parameters:
+
+- <b>stop-at</b>: 50,000;
+
+- <b>number-of-participants</b>: 100;
+
+- <b>number-of-opportunities</b>: 100;
+
+- <b>number-of-solutions</b>: 100;
+
+- <b>number-of-problems</b>: 100.
+
+There are 12 separate <b>BehaviorSpace</b> experiments, each reflecting one of the conditions that result from crossing 3 structural arrangements with 4 combinations of flights. Parameters are set as above, and the number of repetitions for each configuration has been set to 1,000.  Be sure to select "Table output" when running these:
+
+- Organized Anarchy, no flights;
+
+- Organized Anarchy, only flights by postponement;
+
+- Organized Anarchy, only flights by buck-passing;
+
+- Organized Anarchy, flights by postponement and buck-passing;
+
+- Competent Hierarchy, no flights;
+
+- Competent Hierarchy, only flights by postponement;
+
+- Competent Hierarchy, only flights by buck-passing;
+
+- Competent Hierarchy, flights by postponement and buck-passing;
+
+- Incompetent Hierarchy, no flights;
+
+- Incompetent Hierarchy, only flights by postponement;
+
+- Incompetent Hierarchy, only flights by buck-passing;
+
+- Incompetent Hierarchy, flights by postponement and buck-passing.
+
+Each experiment outputs the following variables for each run:
+
+ - _num-oversights_: The cumulative number of decisions by oversight
+
+ - _num-resolutions_: The cumulative number of decisions by resolution
+
+ - _num-oversights-high_: The cumulative number of oversights at high hierarchical level
+
+ - _num-resolutions-high_: The cumulative number of resolutions at high hierarchical level
+
+ - _num-oversights-low_: The cumulative number of oversights at low hierarchical level
+
+ - _num-resolutions-low_: The cumulative number of resolutions at low hierarchical level   
+        
+ - _num-blocked-oversight_: The cumulative number of blocked decision processes followed by an oversight
+
+ - _num-blocked-resolution_: The cumulative number of blocked decision processes followed by a resolution
+
+ - _ave-duration-blocked_: The average duration of blocked decision processes
+
+ - _num-postponements_: The cumulative number of flights by postponement
+
+ - _ave-duration-postponed_: The average duration of postponements
+
+ - _num-buck-passings_: The cumulative number of flights by buckpassing
+
+ - _ave-duration-passed_: The average duration of buck-passings
+
+
+
+## THINGS TO NOTICE
+
+Here are four key properties of the GCM (Fioretti, 2024):
+
+- Most decisions are made by oversight. This is immediately apparent comparing the monitor <b>Oversights</b> to the monitor <b>Resolutions</b>. Independently of how often decisions are made in order to obtain legitimacy rather than solving problems, this outcome is meant to call attention upon the existence and importance of such decisions.
+
+- The proportion of decisions by resolution is higher if flights by postponement, or by buck-passing, or both are allowed. This can be seen by comparing the outcomes of the monitors <b>Oversights</b> and <b>Resolutions</b> with different arrangements of <b>postpone?</b> and <b>buckpass?</b>. While postponing decisions and passing the buck are generally regarded as individually despicable activities, the GCM suggests that they may have a place in organizational life.
+
+- Organized anarchies are more efficient than hierarchies in terms of the proportion of decisions by resolution that they are able to make. This becomes apparent by computing the ratios of the outcomes of the monitors <b>Oversights</b> and <b>Resolutions</b> when either <i>organized anarchy</i> or <i>competent/incompetent hierarchy</i> is selected. With this property, the GCM reminds us that hierarchies have a cost, not necessarily balanced by benefits elsewhere.
+
+- Incompetent hierarchies are roughly at least as efficient as competent hierarchies in terms of the proportion of the decisions by resolution that they are able to make. The reason is that, since ability is meant as the ability to solve problems and since bosses are not supposed to solve problems but rather seek social legitimation, it makes sense that those who are most capable at solving problems stay at the bottom of the hierarchy. Note that albeit the GCM highlights the importance of social legitimacy, it values organizations in terms of their capability to solve problems. Thiscan be seen by computing the ratios of the outcomes of the monitors <b>Oversights</b> and <b>Resolutions</b> when either <i>competent hierarchy</i> or <i>incompetent hierarchy</i> is selected.
+
+The original GCM (Cohen, March and Olsen, 1972) entailed many other properties, most of which could not be confirmed (Bendor, Moe and Shotts, 1989; Fioretti and Lomi, 2008a, 2008b). One interesting property that could be confirmed is that organization members have the impression of facing the same problems again and again (Fioretti and Lomi, 2008a, 2008b, 2010). This property cannot be highlighted by this version of the GCM because, for the sake of simplicity, agents are not allowed to exit the organization once they have made a decision. However, it clearly depends on the existence of flights that capture problems to represent them at a later stage.
+
+
+## THINGS TO TRY
+
+Parameters have been selected in order to highlight the aforementioned properties of the GCM. By moving away from default values and by trying mixed configurations one may check the limits of the validity of those properties. For instance, one may explore what happens when the <b>decision structure</b> is an anarchy albeit the <b>availability structure</b> and the <b>access structure</b> are hierarchies, possibly with <b>dist-efficiency</b> by <i>competence</i> and <b>dist-difficulty</b> by <i>incompetence</i>.
+
+For all mixed combinations of structures and distributions it is possible to explore different combinations of flights, as well as unconventional agent populations. The exploration of these possibilities is left to the reader and may still offer surprises.
+
+
+
+## EXTENDING THE MODEL
+
+This is an agent-based version of the original GCM by Cohen, March and Olsen (1972). Bendor, Moe and Shotts (1989) highlighted serious flaws in the original simulation; however, Fioretti and Lomi (2008a, 2008b) built a <i>NetLogo</i> version that confirmed most of the original properties of the GCM.
+
+One common criticism of the GCM is that organizational structures are imposed upon it. An extended version allows organizations to emerge from a sort of primordial soup (Fioretti, 2024).
+
+This version concerns one single organization, building upon the extensions of the original model presented by Fioretti and Lomi (2010). With respect to that version, in flights problems are attached to the latest-arriving opportunity or participant rather than the least important ones, the limitation of buck-passing to blocked decision processes with only one participant has been overcome, and a bias in the choice between flights by postponement and buck-passing when both are possible has been corrected. Furthermore, several parameters have been eliminated in order to simplify the model. Besides corrections and simplifications, the results of this model differ from those of Fioretti and Lomi (2010) because that model assumed that participants exit the simulation as soon as they made a decision. However, these numerical differences do not invalidate but rather confirm the findings of Fioretti and Lomi (2010).
+
+One simple modification could consist of returning to the state of the model employed in Fioretti (2010), where the intervals of ability, efficiency and difficulty could be selected by means of sliders spanning the [0, 10] and the [0, 1] intervals, respectively. Clearly, the feasibility of decisions by resolution depends on proper choice of these intervals.
+
+Another relatively simple improvement could consist of adding probes for participants meeting problems within a blocked decision process, and then again as they have been coupled to an opportunity or a participant in the context of flights. This would highlight a property of the original GCM (Cohen, March and Olsen, 1972) mentioned in the previous section, namely that organization members have the impression of meeting the same problems again and again. Fioretti and Lomi (2008a, 2008b, 2010) highlighted this property by assuming that problems exit the simulation once they have been involved in decision-making, a circumstance that has been ruled out in this version of the model.
+
+The GCM is a conceptual model. It makes little sense to attempt turning it into an empirical model, but it could be extended carrying out theoretical extensions that are coherent with its assumptions.
+
+One key assumption of the GCM is that its solutions are given and specific to the organization, representing its routines, knowledge and culture along the lines of the evolutionary theory of organizations (Fioretti, 2024). The GCM crudely assumes that one single sort of solutions exist, with specific solutions differentiating from one another only insofar it concerns their efficiency. Furthermore, with a possibly extreme evolutionary assumption, solutions can not change with time and cannot be influenced, let alone conceived, by decision-makers. It would be interesting to explore what the GCM yields if these assumptions are relaxed.
+
+One other extreme assumption concerns its concept of <i>ability</i>, which is simply the ability to solve problems, not the ability to obtain social legitimacy. This is namely the origin of the rather paradoxical result that the most efficient organization is the incompetent hierarchy, where those at the top are the least able (Fioretti, 2024). It would be interesting to extend the model with a qualitatively different sort of ability, a soft ability of social networking that is quintessential for the upper echelons. One could experiment with different distributions of these two sorts of ability as well as, perhaps most interestingly, with the possibility that technically-minded problem-solvers learn them, and at differential rates (Fioretti, 2024).
+
+Finally, it would be interesting to delve into the nature of buck-passing. Fioretti and Lomi (2010) meant it as a malicious activity that may have positive consequence for the organization, nonetheless. However, organizations can do better than this. Organizations can encourage those members who are unable to solve certain problems to seek help from colleagues, who in their turn may be happy to show that are able to solve difficult problems. Would the dynamics of such a collaborative organization be different?
+
+
+
+## NETLOGO FEATURES
+
+This version of the GCM was originally developed NetLogo 4.0.4 (Fioretti, 2008a, 2008b) and subsequent improvements in Fioretti (2010). It has been here updated to NetLogo 7.0.4, with numerous improvements.
+
+With respect to earlier versions, this version of the GCM is less concerned with the properties originally highlighted by Cohen, March and Olsen (1972), it has a simpler code, less parameters and less indicators. The code has been streamlined in many respects.
+
+Albeit the GCM concerns decisions made by participants, opportunities, solutions and problems that are rendered as turtles, decision rules are too complex to be easily expressed by interacting agents. In this model, elaboration of decisions is ascribed to patches, which compute relevant magnitudes for the turtles insisting upon them.
+
+The core of the model is in the procedure <i>to decision-making</i> that is called by <i>to go</i>. In this procedure, each patch checks whether it has at least one participant, at least one opportunity and at least one solution. If it does, it checks whether it has at least one problem, too. If this is not the case, a decision by oversight is made. If it does have at least one problem, it checks whether participant ability multiplied by solution efficiency is greater than problem difficulty, in which case a decision by resolution is made. If this condition is not satisfied the process is blocked, waiting for opportunities or participants to fall in the blocked process, which they free from its most difficult problem. This is in the procedures <i>to postpone</i> and <i>to pass-the-buck</i>.
+
+The ordering of opportunities is expressed by the <i>who</i> variable. Opportunities with the lowest values of this variable are the least important.
+
+Section <b>Code</b> entails an index of procedures. Specifically, the procedure <i>to decision-making</i> calls the procedures <i>to postpone</i> and <i>to pass-the-buck</i> which, in their turn, make use of <i>to report free-spot</i> to re-locate opportunities and participants that are coupled to problems when flights start.
+
+This model is free software. Its code is available through the GNU Public License (GPL) v.3.
+
+
+
+## CREDITS AND REFERENCES
+
+Bendor, J., Moe, T.M. and Shotts, K.W. (1989) Recycling the Garbage Can: An assessment of the research program. American Political Science Review, 95 (1): 169-190.
+
+Cohen M.D., March J.G. and Olsen J.P. (1972) A Garbage Can Model of Organizational Choice. Administrative Science Quarterly, 17 (1): 1-25.
+
+Fioretti G. and Lomi A. (2008a) The Garbage Can Model of Organizational Choice: An agent-based reconstruction. Simulation Modelling Practice and Theory, 16 (2): 192-217.
+
+Fioretti G. and Lomi A. (2008b) An Agent-Based Representation of the Garbage Can Model of Organizational Choice. Journal of Artificial Societies and Social Simulation, 11: 1.
+
+Fioretti G. and Lomi A. (2010) Passing the Buck in the Garbage Can Model of Organizational Choice. Computational and Mathematical Organization Theory, 16 (2): 113-143.
+
+Fioretti, G. (2024) Emergence and Evolution of Organizations out of Garbage Can Dynamics: A few insights for the theory of the firm, entrepreneurship, and industrial economics. Industrial and Corporate Change, 33 (4): 808-830.
+]]></info>
+  <turtleShapes>
+    <shape name="default" rotatable="true" editableColorIndex="0">
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="150" y="5"></point>
+        <point x="40" y="250"></point>
+        <point x="150" y="205"></point>
+        <point x="260" y="250"></point>
+      </polygon>
+    </shape>
+    <shape name="ant" rotatable="true" editableColorIndex="0">
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="136" y="61"></point>
+        <point x="129" y="46"></point>
+        <point x="144" y="30"></point>
+        <point x="119" y="45"></point>
+        <point x="124" y="60"></point>
+        <point x="114" y="82"></point>
+        <point x="97" y="37"></point>
+        <point x="132" y="10"></point>
+        <point x="93" y="36"></point>
+        <point x="111" y="84"></point>
+        <point x="127" y="105"></point>
+        <point x="172" y="105"></point>
+        <point x="189" y="84"></point>
+        <point x="208" y="35"></point>
+        <point x="171" y="11"></point>
+        <point x="202" y="35"></point>
+        <point x="204" y="37"></point>
+        <point x="186" y="82"></point>
+        <point x="177" y="60"></point>
+        <point x="180" y="44"></point>
+        <point x="159" y="32"></point>
+        <point x="170" y="44"></point>
+        <point x="165" y="60"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="150" y="95"></point>
+        <point x="135" y="103"></point>
+        <point x="139" y="117"></point>
+        <point x="125" y="149"></point>
+        <point x="137" y="180"></point>
+        <point x="135" y="196"></point>
+        <point x="150" y="204"></point>
+        <point x="166" y="195"></point>
+        <point x="161" y="180"></point>
+        <point x="174" y="150"></point>
+        <point x="158" y="116"></point>
+        <point x="164" y="102"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="149" y="186"></point>
+        <point x="128" y="197"></point>
+        <point x="114" y="232"></point>
+        <point x="134" y="270"></point>
+        <point x="149" y="282"></point>
+        <point x="166" y="270"></point>
+        <point x="185" y="232"></point>
+        <point x="171" y="195"></point>
+        <point x="149" y="186"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="225" y="66"></point>
+        <point x="230" y="107"></point>
+        <point x="159" y="122"></point>
+        <point x="161" y="127"></point>
+        <point x="234" y="111"></point>
+        <point x="236" y="106"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="78" y="58"></point>
+        <point x="99" y="116"></point>
+        <point x="139" y="123"></point>
+        <point x="137" y="128"></point>
+        <point x="95" y="119"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="48" y="103"></point>
+        <point x="90" y="147"></point>
+        <point x="129" y="147"></point>
+        <point x="130" y="151"></point>
+        <point x="86" y="151"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="65" y="224"></point>
+        <point x="92" y="171"></point>
+        <point x="134" y="160"></point>
+        <point x="135" y="164"></point>
+        <point x="95" y="175"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="235" y="222"></point>
+        <point x="210" y="170"></point>
+        <point x="163" y="162"></point>
+        <point x="161" y="166"></point>
+        <point x="208" y="174"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="249" y="107"></point>
+        <point x="211" y="147"></point>
+        <point x="168" y="147"></point>
+        <point x="168" y="150"></point>
+        <point x="213" y="150"></point>
+      </polygon>
+    </shape>
+    <shape name="arrow" rotatable="true" editableColorIndex="0">
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="150" y="0"></point>
+        <point x="0" y="150"></point>
+        <point x="105" y="150"></point>
+        <point x="105" y="293"></point>
+        <point x="195" y="293"></point>
+        <point x="195" y="150"></point>
+        <point x="300" y="150"></point>
+      </polygon>
+    </shape>
+    <shape name="bee" rotatable="true" editableColorIndex="0">
+      <polygon color="-303222273" filled="true" marked="false">
+        <point x="151" y="152"></point>
+        <point x="137" y="77"></point>
+        <point x="105" y="67"></point>
+        <point x="89" y="67"></point>
+        <point x="66" y="74"></point>
+        <point x="48" y="85"></point>
+        <point x="36" y="100"></point>
+        <point x="24" y="116"></point>
+        <point x="14" y="134"></point>
+        <point x="0" y="151"></point>
+        <point x="15" y="167"></point>
+        <point x="22" y="182"></point>
+        <point x="40" y="206"></point>
+        <point x="58" y="220"></point>
+        <point x="82" y="226"></point>
+        <point x="105" y="226"></point>
+        <point x="134" y="222"></point>
+      </polygon>
+      <polygon color="255" filled="true" marked="false">
+        <point x="151" y="150"></point>
+        <point x="149" y="128"></point>
+        <point x="149" y="114"></point>
+        <point x="155" y="98"></point>
+        <point x="178" y="80"></point>
+        <point x="197" y="80"></point>
+        <point x="217" y="81"></point>
+        <point x="233" y="95"></point>
+        <point x="242" y="117"></point>
+        <point x="246" y="141"></point>
+        <point x="247" y="151"></point>
+        <point x="245" y="177"></point>
+        <point x="234" y="195"></point>
+        <point x="218" y="207"></point>
+        <point x="206" y="211"></point>
+        <point x="184" y="211"></point>
+        <point x="161" y="204"></point>
+        <point x="151" y="189"></point>
+        <point x="148" y="171"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="246" y="151"></point>
+        <point x="241" y="119"></point>
+        <point x="240" y="96"></point>
+        <point x="250" y="81"></point>
+        <point x="261" y="78"></point>
+        <point x="275" y="87"></point>
+        <point x="282" y="103"></point>
+        <point x="277" y="115"></point>
+        <point x="287" y="121"></point>
+        <point x="299" y="150"></point>
+        <point x="286" y="180"></point>
+        <point x="277" y="189"></point>
+        <point x="283" y="197"></point>
+        <point x="281" y="210"></point>
+        <point x="270" y="222"></point>
+        <point x="256" y="222"></point>
+        <point x="243" y="212"></point>
+        <point x="242" y="192"></point>
+      </polygon>
+      <polygon color="255" filled="true" marked="false">
+        <point x="115" y="70"></point>
+        <point x="129" y="74"></point>
+        <point x="128" y="223"></point>
+        <point x="114" y="224"></point>
+      </polygon>
+      <polygon color="255" filled="true" marked="false">
+        <point x="89" y="67"></point>
+        <point x="74" y="71"></point>
+        <point x="74" y="224"></point>
+        <point x="89" y="225"></point>
+        <point x="89" y="67"></point>
+      </polygon>
+      <polygon color="255" filled="true" marked="false">
+        <point x="43" y="91"></point>
+        <point x="31" y="106"></point>
+        <point x="31" y="195"></point>
+        <point x="45" y="211"></point>
+      </polygon>
+      <line endX="213" startY="144" marked="false" color="-1" endY="70" startX="200"></line>
+      <line endX="213" startY="70" marked="false" color="-1" endY="45" startX="213"></line>
+      <line endX="203" startY="45" marked="false" color="-1" endY="26" startX="214"></line>
+      <line endX="185" startY="26" marked="false" color="-1" endY="22" startX="204"></line>
+      <line endX="170" startY="22" marked="false" color="-1" endY="25" startX="185"></line>
+      <line endX="159" startY="26" marked="false" color="-1" endY="37" startX="169"></line>
+      <line endX="156" startY="37" marked="false" color="-1" endY="55" startX="159"></line>
+      <line endX="199" startY="55" marked="false" color="-1" endY="143" startX="157"></line>
+      <line endX="162" startY="141" marked="false" color="-1" endY="227" startX="200"></line>
+      <line endX="163" startY="227" marked="false" color="-1" endY="241" startX="162"></line>
+      <line endX="171" startY="241" marked="false" color="-1" endY="249" startX="163"></line>
+      <line endX="190" startY="249" marked="false" color="-1" endY="254" startX="171"></line>
+      <line endX="203" startY="253" marked="false" color="-1" endY="248" startX="192"></line>
+      <line endX="218" startY="249" marked="false" color="-1" endY="235" startX="205"></line>
+      <line endX="200" startY="235" marked="false" color="-1" endY="144" startX="218"></line>
+    </shape>
+    <shape name="bird1" rotatable="false" editableColorIndex="0">
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="2" y="6"></point>
+        <point x="2" y="39"></point>
+        <point x="270" y="298"></point>
+        <point x="297" y="298"></point>
+        <point x="299" y="271"></point>
+        <point x="187" y="160"></point>
+        <point x="279" y="75"></point>
+        <point x="276" y="22"></point>
+        <point x="100" y="67"></point>
+        <point x="31" y="0"></point>
+      </polygon>
+    </shape>
+    <shape name="bird2" rotatable="false" editableColorIndex="0">
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="2" y="4"></point>
+        <point x="33" y="4"></point>
+        <point x="298" y="270"></point>
+        <point x="298" y="298"></point>
+        <point x="272" y="298"></point>
+        <point x="155" y="184"></point>
+        <point x="117" y="289"></point>
+        <point x="61" y="295"></point>
+        <point x="61" y="105"></point>
+        <point x="0" y="43"></point>
+      </polygon>
+    </shape>
+    <shape name="boat1" rotatable="false" editableColorIndex="0">
+      <polygon color="-1" filled="true" marked="false">
+        <point x="63" y="162"></point>
+        <point x="90" y="207"></point>
+        <point x="223" y="207"></point>
+        <point x="290" y="162"></point>
+      </polygon>
+      <rectangle endX="157" startY="32" marked="false" color="-1653716737" endY="162" startX="150" filled="true"></rectangle>
+      <polygon color="878553599" filled="true" marked="false">
+        <point x="150" y="34"></point>
+        <point x="131" y="49"></point>
+        <point x="145" y="47"></point>
+        <point x="147" y="48"></point>
+        <point x="149" y="49"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="158" y="33"></point>
+        <point x="230" y="157"></point>
+        <point x="182" y="150"></point>
+        <point x="169" y="151"></point>
+        <point x="157" y="156"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="149" y="55"></point>
+        <point x="88" y="143"></point>
+        <point x="103" y="139"></point>
+        <point x="111" y="136"></point>
+        <point x="117" y="139"></point>
+        <point x="126" y="145"></point>
+        <point x="130" y="147"></point>
+        <point x="139" y="147"></point>
+        <point x="146" y="146"></point>
+        <point x="149" y="55"></point>
+      </polygon>
+    </shape>
+    <shape name="boat2" rotatable="false" editableColorIndex="0">
+      <polygon color="-1" filled="true" marked="false">
+        <point x="63" y="162"></point>
+        <point x="90" y="207"></point>
+        <point x="223" y="207"></point>
+        <point x="290" y="162"></point>
+      </polygon>
+      <rectangle endX="157" startY="32" marked="false" color="-1653716737" endY="162" startX="150" filled="true"></rectangle>
+      <polygon color="878553599" filled="true" marked="false">
+        <point x="150" y="34"></point>
+        <point x="131" y="49"></point>
+        <point x="145" y="47"></point>
+        <point x="147" y="48"></point>
+        <point x="149" y="49"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="157" y="54"></point>
+        <point x="175" y="79"></point>
+        <point x="174" y="96"></point>
+        <point x="185" y="102"></point>
+        <point x="178" y="112"></point>
+        <point x="194" y="124"></point>
+        <point x="196" y="131"></point>
+        <point x="190" y="139"></point>
+        <point x="192" y="146"></point>
+        <point x="211" y="151"></point>
+        <point x="216" y="154"></point>
+        <point x="157" y="154"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="150" y="74"></point>
+        <point x="146" y="91"></point>
+        <point x="139" y="99"></point>
+        <point x="143" y="114"></point>
+        <point x="141" y="123"></point>
+        <point x="137" y="126"></point>
+        <point x="131" y="129"></point>
+        <point x="132" y="139"></point>
+        <point x="142" y="136"></point>
+        <point x="126" y="142"></point>
+        <point x="119" y="147"></point>
+        <point x="148" y="147"></point>
+      </polygon>
+    </shape>
+    <shape name="boat3" rotatable="false" editableColorIndex="0">
+      <polygon color="-1" filled="true" marked="false">
+        <point x="63" y="162"></point>
+        <point x="90" y="207"></point>
+        <point x="223" y="207"></point>
+        <point x="290" y="162"></point>
+      </polygon>
+      <rectangle endX="157" startY="32" marked="false" color="-1653716737" endY="162" startX="150" filled="true"></rectangle>
+      <polygon color="878553599" filled="true" marked="false">
+        <point x="150" y="34"></point>
+        <point x="131" y="49"></point>
+        <point x="145" y="47"></point>
+        <point x="147" y="48"></point>
+        <point x="149" y="49"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="158" y="37"></point>
+        <point x="172" y="45"></point>
+        <point x="188" y="59"></point>
+        <point x="202" y="79"></point>
+        <point x="217" y="109"></point>
+        <point x="220" y="130"></point>
+        <point x="218" y="147"></point>
+        <point x="204" y="156"></point>
+        <point x="158" y="156"></point>
+        <point x="161" y="142"></point>
+        <point x="170" y="123"></point>
+        <point x="170" y="102"></point>
+        <point x="169" y="88"></point>
+        <point x="165" y="62"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="149" y="66"></point>
+        <point x="142" y="78"></point>
+        <point x="139" y="96"></point>
+        <point x="141" y="111"></point>
+        <point x="146" y="139"></point>
+        <point x="148" y="147"></point>
+        <point x="110" y="147"></point>
+        <point x="113" y="131"></point>
+        <point x="118" y="106"></point>
+        <point x="126" y="71"></point>
+      </polygon>
+    </shape>
+    <shape name="butterfly1" rotatable="true" editableColorIndex="0">
+      <polygon color="255" filled="true" marked="false">
+        <point x="151" y="76"></point>
+        <point x="138" y="91"></point>
+        <point x="138" y="284"></point>
+        <point x="150" y="296"></point>
+        <point x="162" y="286"></point>
+        <point x="162" y="91"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="164" y="106"></point>
+        <point x="184" y="79"></point>
+        <point x="205" y="61"></point>
+        <point x="236" y="48"></point>
+        <point x="259" y="53"></point>
+        <point x="279" y="86"></point>
+        <point x="287" y="119"></point>
+        <point x="289" y="158"></point>
+        <point x="278" y="177"></point>
+        <point x="256" y="182"></point>
+        <point x="164" y="181"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="136" y="110"></point>
+        <point x="119" y="82"></point>
+        <point x="110" y="71"></point>
+        <point x="85" y="61"></point>
+        <point x="59" y="48"></point>
+        <point x="36" y="56"></point>
+        <point x="17" y="88"></point>
+        <point x="6" y="115"></point>
+        <point x="2" y="147"></point>
+        <point x="15" y="178"></point>
+        <point x="134" y="178"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="46" y="181"></point>
+        <point x="28" y="227"></point>
+        <point x="50" y="255"></point>
+        <point x="77" y="273"></point>
+        <point x="112" y="283"></point>
+        <point x="135" y="274"></point>
+        <point x="135" y="180"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="165" y="185"></point>
+        <point x="254" y="184"></point>
+        <point x="272" y="224"></point>
+        <point x="255" y="251"></point>
+        <point x="236" y="267"></point>
+        <point x="191" y="283"></point>
+        <point x="164" y="276"></point>
+      </polygon>
+      <line endX="159" startY="47" marked="true" color="-1920102913" endY="82" startX="167"></line>
+      <line endX="145" startY="47" marked="true" color="-1920102913" endY="81" startX="136"></line>
+      <circle x="165" y="45" marked="true" color="-1920102913" diameter="8" filled="true"></circle>
+      <circle x="134" y="45" marked="true" color="-1920102913" diameter="6" filled="true"></circle>
+      <circle x="133" y="44" marked="true" color="-1920102913" diameter="7" filled="true"></circle>
+      <circle x="133" y="43" marked="true" color="-1920102913" diameter="8" filled="true"></circle>
+    </shape>
+    <shape name="circle" rotatable="false" editableColorIndex="0">
+      <circle x="34" y="34" marked="true" color="-1920102913" diameter="230" filled="true"></circle>
+    </shape>
+    <shape name="opportunity" rotatable="true" editableColorIndex="0">
+      <rectangle endX="255" startY="47" marked="false" color="-244705793" endY="255" startX="46" filled="true"></rectangle>
+    </shape>
+    <shape name="participant" rotatable="true" editableColorIndex="0">
+      <circle x="125" y="5" marked="false" color="-303222273" diameter="63" filled="true"></circle>
+      <rectangle endX="195" startY="90" marked="false" color="-303222273" endY="225" startX="120" filled="true"></rectangle>
+      <polygon color="-303222273" filled="true" marked="false">
+        <point x="120" y="90"></point>
+        <point x="30" y="150"></point>
+        <point x="45" y="180"></point>
+        <point x="113" y="139"></point>
+        <point x="120" y="140"></point>
+      </polygon>
+      <polygon color="-303222273" filled="true" marked="false">
+        <point x="195" y="90"></point>
+        <point x="285" y="150"></point>
+        <point x="270" y="180"></point>
+        <point x="185" y="137"></point>
+      </polygon>
+      <polygon color="-303222273" filled="true" marked="false">
+        <point x="120" y="225"></point>
+        <point x="100" y="309"></point>
+        <point x="138" y="309"></point>
+        <point x="150" y="195"></point>
+      </polygon>
+      <polygon color="-303222273" filled="true" marked="false">
+        <point x="165" y="195"></point>
+        <point x="180" y="308"></point>
+        <point x="212" y="308"></point>
+        <point x="180" y="180"></point>
+      </polygon>
+      <rectangle endX="165" startY="30" marked="false" color="-303222273" endY="120" startX="150" filled="true"></rectangle>
+    </shape>
+    <shape name="problem" rotatable="true" editableColorIndex="0">
+      <polygon color="2085659903" filled="true" marked="false">
+        <point x="149" y="1"></point>
+        <point x="31" y="239"></point>
+        <point x="271" y="239"></point>
+      </polygon>
+    </shape>
+    <shape name="solution" rotatable="true" editableColorIndex="0">
+      <circle x="75" y="73" marked="false" color="-684578305" diameter="151" filled="true"></circle>
+      <circle x="11" y="12" marked="false" color="-684578305" diameter="273" filled="true"></circle>
+    </shape>
+    <shape name="spacecraft" rotatable="true" editableColorIndex="0">
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="150" y="0"></point>
+        <point x="180" y="135"></point>
+        <point x="255" y="255"></point>
+        <point x="225" y="240"></point>
+        <point x="150" y="180"></point>
+        <point x="75" y="240"></point>
+        <point x="45" y="255"></point>
+        <point x="120" y="135"></point>
+      </polygon>
+    </shape>
+    <shape name="thin-arrow" rotatable="true" editableColorIndex="0">
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="150" y="0"></point>
+        <point x="0" y="150"></point>
+        <point x="120" y="150"></point>
+        <point x="120" y="293"></point>
+        <point x="180" y="293"></point>
+        <point x="180" y="150"></point>
+        <point x="300" y="150"></point>
+      </polygon>
+    </shape>
+    <shape name="truck-down" rotatable="false" editableColorIndex="0">
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="225" y="30"></point>
+        <point x="225" y="270"></point>
+        <point x="120" y="270"></point>
+        <point x="105" y="210"></point>
+        <point x="60" y="180"></point>
+        <point x="45" y="30"></point>
+        <point x="105" y="60"></point>
+        <point x="105" y="30"></point>
+      </polygon>
+      <polygon color="2085659903" filled="true" marked="false">
+        <point x="195" y="75"></point>
+        <point x="195" y="120"></point>
+        <point x="240" y="120"></point>
+        <point x="240" y="75"></point>
+      </polygon>
+      <polygon color="2085659903" filled="true" marked="false">
+        <point x="195" y="225"></point>
+        <point x="195" y="180"></point>
+        <point x="240" y="180"></point>
+        <point x="240" y="225"></point>
+      </polygon>
+    </shape>
+    <shape name="truck-left" rotatable="false" editableColorIndex="0">
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="120" y="135"></point>
+        <point x="225" y="135"></point>
+        <point x="225" y="210"></point>
+        <point x="75" y="210"></point>
+        <point x="75" y="165"></point>
+        <point x="105" y="165"></point>
+      </polygon>
+      <polygon color="2085659903" filled="true" marked="false">
+        <point x="90" y="210"></point>
+        <point x="105" y="225"></point>
+        <point x="120" y="210"></point>
+      </polygon>
+      <polygon color="2085659903" filled="true" marked="false">
+        <point x="180" y="210"></point>
+        <point x="195" y="225"></point>
+        <point x="210" y="210"></point>
+      </polygon>
+    </shape>
+    <shape name="truck-right" rotatable="false" editableColorIndex="0">
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="180" y="135"></point>
+        <point x="75" y="135"></point>
+        <point x="75" y="210"></point>
+        <point x="225" y="210"></point>
+        <point x="225" y="165"></point>
+        <point x="195" y="165"></point>
+      </polygon>
+      <polygon color="2085659903" filled="true" marked="false">
+        <point x="210" y="210"></point>
+        <point x="195" y="225"></point>
+        <point x="180" y="210"></point>
+      </polygon>
+      <polygon color="2085659903" filled="true" marked="false">
+        <point x="120" y="210"></point>
+        <point x="105" y="225"></point>
+        <point x="90" y="210"></point>
+      </polygon>
+    </shape>
+    <shape name="turtle" rotatable="true" editableColorIndex="0">
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="138" y="75"></point>
+        <point x="162" y="75"></point>
+        <point x="165" y="105"></point>
+        <point x="225" y="105"></point>
+        <point x="225" y="142"></point>
+        <point x="195" y="135"></point>
+        <point x="195" y="187"></point>
+        <point x="225" y="195"></point>
+        <point x="225" y="225"></point>
+        <point x="195" y="217"></point>
+        <point x="195" y="202"></point>
+        <point x="105" y="202"></point>
+        <point x="105" y="217"></point>
+        <point x="75" y="225"></point>
+        <point x="75" y="195"></point>
+        <point x="105" y="187"></point>
+        <point x="105" y="135"></point>
+        <point x="75" y="142"></point>
+        <point x="75" y="105"></point>
+        <point x="135" y="105"></point>
+      </polygon>
+    </shape>
+    <shape name="wolf-left" rotatable="false" editableColorIndex="3">
+      <polygon color="-1653716737" filled="true" marked="true">
+        <point x="117" y="97"></point>
+        <point x="91" y="74"></point>
+        <point x="66" y="74"></point>
+        <point x="60" y="85"></point>
+        <point x="36" y="85"></point>
+        <point x="38" y="92"></point>
+        <point x="44" y="97"></point>
+        <point x="62" y="97"></point>
+        <point x="81" y="117"></point>
+        <point x="84" y="134"></point>
+        <point x="92" y="147"></point>
+        <point x="109" y="152"></point>
+        <point x="136" y="144"></point>
+        <point x="174" y="144"></point>
+        <point x="174" y="103"></point>
+        <point x="143" y="103"></point>
+        <point x="134" y="97"></point>
+      </polygon>
+      <polygon color="-1653716737" filled="true" marked="true">
+        <point x="87" y="80"></point>
+        <point x="79" y="55"></point>
+        <point x="76" y="79"></point>
+      </polygon>
+      <polygon color="-1653716737" filled="true" marked="true">
+        <point x="81" y="75"></point>
+        <point x="70" y="58"></point>
+        <point x="73" y="82"></point>
+      </polygon>
+      <polygon color="-1653716737" filled="true" marked="true">
+        <point x="99" y="131"></point>
+        <point x="76" y="152"></point>
+        <point x="76" y="163"></point>
+        <point x="96" y="182"></point>
+        <point x="104" y="182"></point>
+        <point x="109" y="173"></point>
+        <point x="102" y="167"></point>
+        <point x="99" y="173"></point>
+        <point x="87" y="159"></point>
+        <point x="104" y="140"></point>
+      </polygon>
+      <polygon color="-1653716737" filled="true" marked="true">
+        <point x="107" y="138"></point>
+        <point x="107" y="186"></point>
+        <point x="98" y="190"></point>
+        <point x="99" y="196"></point>
+        <point x="112" y="196"></point>
+        <point x="115" y="190"></point>
+      </polygon>
+      <polygon color="-1653716737" filled="true" marked="true">
+        <point x="116" y="140"></point>
+        <point x="114" y="189"></point>
+        <point x="105" y="137"></point>
+      </polygon>
+      <rectangle endX="114" startY="150" marked="true" color="-1653716737" endY="192" startX="109" filled="true"></rectangle>
+      <rectangle endX="116" startY="143" marked="true" color="-1653716737" endY="191" startX="111" filled="true"></rectangle>
+      <polygon color="-1653716737" filled="true" marked="true">
+        <point x="168" y="106"></point>
+        <point x="184" y="98"></point>
+        <point x="205" y="98"></point>
+        <point x="218" y="115"></point>
+        <point x="218" y="137"></point>
+        <point x="186" y="164"></point>
+        <point x="196" y="176"></point>
+        <point x="195" y="194"></point>
+        <point x="178" y="195"></point>
+        <point x="178" y="183"></point>
+        <point x="188" y="183"></point>
+        <point x="169" y="164"></point>
+        <point x="173" y="144"></point>
+      </polygon>
+      <polygon color="-1653716737" filled="true" marked="true">
+        <point x="207" y="140"></point>
+        <point x="200" y="163"></point>
+        <point x="206" y="175"></point>
+        <point x="207" y="192"></point>
+        <point x="193" y="189"></point>
+        <point x="192" y="177"></point>
+        <point x="198" y="176"></point>
+        <point x="185" y="150"></point>
+      </polygon>
+      <polygon color="-1653716737" filled="true" marked="true">
+        <point x="214" y="134"></point>
+        <point x="203" y="168"></point>
+        <point x="192" y="148"></point>
+      </polygon>
+      <polygon color="-1653716737" filled="true" marked="true">
+        <point x="204" y="151"></point>
+        <point x="203" y="176"></point>
+        <point x="193" y="148"></point>
+      </polygon>
+      <polygon color="-1653716737" filled="true" marked="true">
+        <point x="207" y="103"></point>
+        <point x="221" y="98"></point>
+        <point x="236" y="101"></point>
+        <point x="243" y="115"></point>
+        <point x="243" y="128"></point>
+        <point x="256" y="142"></point>
+        <point x="239" y="143"></point>
+        <point x="233" y="133"></point>
+        <point x="225" y="115"></point>
+        <point x="214" y="114"></point>
+      </polygon>
+    </shape>
+    <shape name="wolf-right" rotatable="false" editableColorIndex="3">
+      <polygon color="-1653716737" filled="true" marked="true">
+        <point x="170" y="127"></point>
+        <point x="200" y="93"></point>
+        <point x="231" y="93"></point>
+        <point x="237" y="103"></point>
+        <point x="262" y="103"></point>
+        <point x="261" y="113"></point>
+        <point x="253" y="119"></point>
+        <point x="231" y="119"></point>
+        <point x="215" y="143"></point>
+        <point x="213" y="160"></point>
+        <point x="208" y="173"></point>
+        <point x="189" y="187"></point>
+        <point x="169" y="190"></point>
+        <point x="154" y="190"></point>
+        <point x="126" y="180"></point>
+        <point x="106" y="171"></point>
+        <point x="72" y="171"></point>
+        <point x="73" y="126"></point>
+        <point x="122" y="126"></point>
+        <point x="144" y="123"></point>
+        <point x="159" y="123"></point>
+      </polygon>
+      <polygon color="-1653716737" filled="true" marked="true">
+        <point x="201" y="99"></point>
+        <point x="214" y="69"></point>
+        <point x="215" y="99"></point>
+      </polygon>
+      <polygon color="-1653716737" filled="true" marked="true">
+        <point x="207" y="98"></point>
+        <point x="223" y="71"></point>
+        <point x="220" y="101"></point>
+      </polygon>
+      <polygon color="-1653716737" filled="true" marked="true">
+        <point x="184" y="172"></point>
+        <point x="189" y="234"></point>
+        <point x="203" y="238"></point>
+        <point x="203" y="246"></point>
+        <point x="187" y="247"></point>
+        <point x="180" y="239"></point>
+        <point x="171" y="180"></point>
+      </polygon>
+      <polygon color="-1653716737" filled="true" marked="true">
+        <point x="197" y="174"></point>
+        <point x="204" y="220"></point>
+        <point x="218" y="224"></point>
+        <point x="219" y="234"></point>
+        <point x="201" y="232"></point>
+        <point x="195" y="225"></point>
+        <point x="179" y="179"></point>
+      </polygon>
+      <polygon color="-1653716737" filled="true" marked="true">
+        <point x="78" y="167"></point>
+        <point x="95" y="187"></point>
+        <point x="95" y="208"></point>
+        <point x="79" y="220"></point>
+        <point x="92" y="234"></point>
+        <point x="98" y="235"></point>
+        <point x="100" y="249"></point>
+        <point x="81" y="246"></point>
+        <point x="76" y="241"></point>
+        <point x="61" y="212"></point>
+        <point x="65" y="195"></point>
+        <point x="52" y="170"></point>
+        <point x="45" y="150"></point>
+        <point x="44" y="128"></point>
+        <point x="55" y="121"></point>
+        <point x="69" y="121"></point>
+        <point x="81" y="135"></point>
+      </polygon>
+      <polygon color="-1653716737" filled="true" marked="true">
+        <point x="48" y="143"></point>
+        <point x="58" y="141"></point>
+      </polygon>
+      <polygon color="-1653716737" filled="true" marked="true">
+        <point x="46" y="136"></point>
+        <point x="68" y="137"></point>
+      </polygon>
+      <polygon color="-1653716737" filled="true" marked="true">
+        <point x="45" y="129"></point>
+        <point x="35" y="142"></point>
+        <point x="37" y="159"></point>
+        <point x="53" y="192"></point>
+        <point x="47" y="210"></point>
+        <point x="62" y="238"></point>
+        <point x="80" y="237"></point>
+      </polygon>
+      <line endX="59" startY="237" marked="false" color="255" endY="213" startX="74"></line>
+      <line endX="59" startY="213" marked="false" color="255" endY="212" startX="59"></line>
+      <line endX="67" startY="211" marked="false" color="255" endY="192" startX="58"></line>
+      <polygon color="-1653716737" filled="true" marked="true">
+        <point x="38" y="138"></point>
+        <point x="66" y="149"></point>
+      </polygon>
+      <polygon color="-1653716737" filled="true" marked="true">
+        <point x="46" y="128"></point>
+        <point x="33" y="120"></point>
+        <point x="21" y="118"></point>
+        <point x="11" y="123"></point>
+        <point x="3" y="138"></point>
+        <point x="5" y="160"></point>
+        <point x="13" y="178"></point>
+        <point x="9" y="192"></point>
+        <point x="0" y="199"></point>
+        <point x="20" y="196"></point>
+        <point x="25" y="179"></point>
+        <point x="24" y="161"></point>
+        <point x="25" y="148"></point>
+        <point x="45" y="140"></point>
+      </polygon>
+      <polygon color="-1653716737" filled="true" marked="true">
+        <point x="67" y="122"></point>
+        <point x="96" y="126"></point>
+        <point x="63" y="144"></point>
+      </polygon>
+    </shape>
+  </turtleShapes>
+  <linkShapes>
+    <shape name="default" curviness="0.0">
+      <lines>
+        <line x="-0.2" visible="false">
+          <dash value="0.0"></dash>
+          <dash value="1.0"></dash>
+        </line>
+        <line x="0.0" visible="true">
+          <dash value="1.0"></dash>
+          <dash value="0.0"></dash>
+        </line>
+        <line x="0.2" visible="false">
+          <dash value="0.0"></dash>
+          <dash value="1.0"></dash>
+        </line>
+      </lines>
+      <indicator>
+        <shape name="link direction" rotatable="true" editableColorIndex="0">
+          <line endX="90" startY="150" marked="true" color="-1920102913" endY="180" startX="150"></line>
+          <line endX="210" startY="150" marked="true" color="-1920102913" endY="180" startX="150"></line>
+        </shape>
+      </indicator>
+    </shape>
+  </linkShapes>
+  <previewCommands>setup repeat 75 [ go ]</previewCommands>
+  <experiments>
+    <experiment name="Organized Anarchy" repetitions="1000" sequentialRunOrder="true" runMetricsEveryStep="false">
+      <setup>setup</setup>
+      <go>go</go>
+      <constants>
+        <enumeratedValueSet variable="print?">
+          <value value="true"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="stop-at">
+          <value value="50000"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="show-details?">
+          <value value="false"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-participants">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-opportunities">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-solutions">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-problems">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="min-ability">
+          <value value="0"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="max-ability">
+          <value value="10"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="min-efficiency">
+          <value value="0"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="max-efficiency">
+          <value value="1"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="min-difficulty">
+          <value value="0"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="max-difficulty">
+          <value value="10"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="decision-structure">
+          <value value="&quot;organized anarchy&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="availability-structure">
+          <value value="&quot;organized anarchy&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="access-structure">
+          <value value="&quot;organized anarchy&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="buckpass?">
+          <value value="false"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="postpone?">
+          <value value="false"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="span-of-control">
+          <value value="2"></value>
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="Organized Anarchy P" repetitions="1000" sequentialRunOrder="true" runMetricsEveryStep="false">
+      <setup>setup</setup>
+      <go>go</go>
+      <metrics>
+        <metric>num-oversights</metric>
+        <metric>num-resolutions</metric>
+        <metric>num-oversights-high</metric>
+        <metric>num-resolutions-high</metric>
+        <metric>num-oversights-low</metric>
+        <metric>num-resolutions-low</metric>
+        <metric>num-blocked-oversights</metric>
+        <metric>num-blocked-resolutions</metric>
+        <metric>ave-duration-blocked</metric>
+        <metric>num-postponements</metric>
+        <metric>ave-duration-postponed</metric>
+        <metric>num-buck-passings</metric>
+        <metric>ave-duration-passed</metric>
+      </metrics>
+      <constants>
+        <enumeratedValueSet variable="stop-at">
+          <value value="50000"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="show-details?">
+          <value value="false"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-participants">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-opportunities">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-solutions">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-problems">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="min-ability">
+          <value value="0"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="max-ability">
+          <value value="10"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="min-efficiency">
+          <value value="0"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="max-efficiency">
+          <value value="1"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="min-difficulty">
+          <value value="0"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="max-difficulty">
+          <value value="10"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="decision-structure">
+          <value value="&quot;organized anarchy&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="availability-structure">
+          <value value="&quot;organized anarchy&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="access-structure">
+          <value value="&quot;organized anarchy&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="buckpass?">
+          <value value="false"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="postpone?">
+          <value value="true"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="span-of-control">
+          <value value="2"></value>
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="Organized Anarchy BP" repetitions="1000" sequentialRunOrder="true" runMetricsEveryStep="false">
+      <setup>setup</setup>
+      <go>go</go>
+      <metrics>
+        <metric>num-oversights</metric>
+        <metric>num-resolutions</metric>
+        <metric>num-oversights-high</metric>
+        <metric>num-resolutions-high</metric>
+        <metric>num-oversights-low</metric>
+        <metric>num-resolutions-low</metric>
+        <metric>num-blocked-oversights</metric>
+        <metric>num-blocked-resolutions</metric>
+        <metric>ave-duration-blocked</metric>
+        <metric>num-postponements</metric>
+        <metric>ave-duration-postponed</metric>
+        <metric>num-buck-passings</metric>
+        <metric>ave-duration-passed</metric>
+      </metrics>
+      <constants>
+        <enumeratedValueSet variable="stop-at">
+          <value value="50000"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="show-details?">
+          <value value="false"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-participants">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-opportunities">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-solutions">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-problems">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="min-ability">
+          <value value="0"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="max-ability">
+          <value value="10"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="min-efficiency">
+          <value value="0"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="max-efficiency">
+          <value value="1"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="min-difficulty">
+          <value value="0"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="max-difficulty">
+          <value value="10"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="decision-structure">
+          <value value="&quot;organized anarchy&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="availability-structure">
+          <value value="&quot;organized anarchy&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="access-structure">
+          <value value="&quot;organized anarchy&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="buckpass?">
+          <value value="true"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="postpone?">
+          <value value="false"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="span-of-control">
+          <value value="2"></value>
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="Organized Anarchy P+BP" repetitions="1000" sequentialRunOrder="true" runMetricsEveryStep="false">
+      <setup>setup</setup>
+      <go>go</go>
+      <metrics>
+        <metric>num-oversights</metric>
+        <metric>num-resolutions</metric>
+        <metric>num-oversights-high</metric>
+        <metric>num-resolutions-high</metric>
+        <metric>num-oversights-low</metric>
+        <metric>num-resolutions-low</metric>
+        <metric>num-blocked-oversights</metric>
+        <metric>num-blocked-resolutions</metric>
+        <metric>ave-duration-blocked</metric>
+        <metric>num-postponements</metric>
+        <metric>ave-duration-postponed</metric>
+        <metric>num-buck-passings</metric>
+        <metric>ave-duration-passed</metric>
+      </metrics>
+      <constants>
+        <enumeratedValueSet variable="stop-at">
+          <value value="50000"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="show-details?">
+          <value value="false"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-participants">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-opportunities">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-solutions">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-problems">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="min-ability">
+          <value value="0"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="max-ability">
+          <value value="10"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="min-efficiency">
+          <value value="0"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="max-efficiency">
+          <value value="1"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="min-difficulty">
+          <value value="0"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="max-difficulty">
+          <value value="10"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="decision-structure">
+          <value value="&quot;organized anarchy&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="availability-structure">
+          <value value="&quot;organized anarchy&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="access-structure">
+          <value value="&quot;organized anarchy&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="buckpass?">
+          <value value="true"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="postpone?">
+          <value value="true"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="span-of-control">
+          <value value="2"></value>
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="Competent Hierarchy" repetitions="1000" sequentialRunOrder="true" runMetricsEveryStep="false">
+      <setup>setup</setup>
+      <go>go</go>
+      <constants>
+        <enumeratedValueSet variable="print?">
+          <value value="true"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="stop-at">
+          <value value="50000"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="show-details?">
+          <value value="false"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-participants">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-opportunities">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-solutions">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-problems">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="min-ability">
+          <value value="0"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="max-ability">
+          <value value="10"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="min-efficiency">
+          <value value="0"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="max-efficiency">
+          <value value="1"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="min-difficulty">
+          <value value="0"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="max-difficulty">
+          <value value="10"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="decision-structure">
+          <value value="&quot;competent hierarchy&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="availability-structure">
+          <value value="&quot;competent hierarchy&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="access-structure">
+          <value value="&quot;competent hierarchy&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="buckpass?">
+          <value value="false"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="postpone?">
+          <value value="false"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="span-of-control">
+          <value value="2"></value>
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="Competent Hierarchy P" repetitions="1000" sequentialRunOrder="true" runMetricsEveryStep="false">
+      <setup>setup</setup>
+      <go>go</go>
+      <constants>
+        <enumeratedValueSet variable="print?">
+          <value value="true"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="stop-at">
+          <value value="50000"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="show-details?">
+          <value value="false"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-participants">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-opportunities">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-solutions">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-problems">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="min-ability">
+          <value value="0"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="max-ability">
+          <value value="10"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="min-efficiency">
+          <value value="0"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="max-efficiency">
+          <value value="1"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="min-difficulty">
+          <value value="0"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="max-difficulty">
+          <value value="10"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="decision-structure">
+          <value value="&quot;competent hierarchy&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="availability-structure">
+          <value value="&quot;competent hierarchy&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="access-structure">
+          <value value="&quot;competent hierarchy&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="buckpass?">
+          <value value="false"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="postpone?">
+          <value value="true"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="span-of-control">
+          <value value="2"></value>
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="Competent Hierarchy BP" repetitions="1000" sequentialRunOrder="true" runMetricsEveryStep="false">
+      <setup>setup</setup>
+      <go>go</go>
+      <metrics>
+        <metric>num-oversights</metric>
+        <metric>num-resolutions</metric>
+        <metric>num-oversights-high</metric>
+        <metric>num-resolutions-high</metric>
+        <metric>num-oversights-low</metric>
+        <metric>num-resolutions-low</metric>
+        <metric>num-blocked-oversights</metric>
+        <metric>num-blocked-resolutions</metric>
+        <metric>ave-duration-blocked</metric>
+        <metric>num-postponements</metric>
+        <metric>ave-duration-postponed</metric>
+        <metric>num-buck-passings</metric>
+        <metric>ave-duration-passed</metric>
+      </metrics>
+      <constants>
+        <enumeratedValueSet variable="stop-at">
+          <value value="50000"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="show-details?">
+          <value value="false"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-participants">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-opportunities">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-solutions">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-problems">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="min-ability">
+          <value value="0"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="max-ability">
+          <value value="10"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="min-efficiency">
+          <value value="0"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="max-efficiency">
+          <value value="1"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="min-difficulty">
+          <value value="0"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="max-difficulty">
+          <value value="10"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="decision-structure">
+          <value value="&quot;competent hierarchy&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="availability-structure">
+          <value value="&quot;competent hierarchy&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="access-structure">
+          <value value="&quot;competent hierarchy&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="buckpass?">
+          <value value="true"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="postpone?">
+          <value value="false"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="span-of-control">
+          <value value="2"></value>
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="Competent Hierarchy P+BP" repetitions="1000" sequentialRunOrder="true" runMetricsEveryStep="false">
+      <setup>setup</setup>
+      <go>go</go>
+      <constants>
+        <enumeratedValueSet variable="print?">
+          <value value="true"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="stop-at">
+          <value value="50000"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="show-details?">
+          <value value="false"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-participants">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-opportunities">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-solutions">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-problems">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="min-ability">
+          <value value="0"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="max-ability">
+          <value value="10"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="min-efficiency">
+          <value value="0"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="max-efficiency">
+          <value value="1"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="min-difficulty">
+          <value value="0"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="max-difficulty">
+          <value value="10"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="decision-structure">
+          <value value="&quot;competent hierarchy&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="availability-structure">
+          <value value="&quot;competent hierarchy&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="access-structure">
+          <value value="&quot;competent hierarchy&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="buckpass?">
+          <value value="true"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="postpone?">
+          <value value="true"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="span-of-control">
+          <value value="2"></value>
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="Incompetent Hierarchy" repetitions="1000" sequentialRunOrder="true" runMetricsEveryStep="false">
+      <setup>setup</setup>
+      <go>go</go>
+      <metrics>
+        <metric>num-oversights</metric>
+        <metric>num-resolutions</metric>
+        <metric>num-oversights-high</metric>
+        <metric>num-resolutions-high</metric>
+        <metric>num-oversights-low</metric>
+        <metric>num-resolutions-low</metric>
+        <metric>num-blocked-oversights</metric>
+        <metric>num-blocked-resolutions</metric>
+        <metric>ave-duration-blocked</metric>
+        <metric>num-postponements</metric>
+        <metric>ave-duration-postponed</metric>
+        <metric>num-buck-passings</metric>
+        <metric>ave-duration-passed</metric>
+      </metrics>
+      <constants>
+        <enumeratedValueSet variable="stop-at">
+          <value value="50000"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="show-details?">
+          <value value="false"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-participants">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-opportunities">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-solutions">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-problems">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="min-ability">
+          <value value="0"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="max-ability">
+          <value value="10"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="min-efficiency">
+          <value value="0"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="max-efficiency">
+          <value value="1"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="min-difficulty">
+          <value value="0"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="max-difficulty">
+          <value value="10"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="decision-structure">
+          <value value="&quot;incompetent hierarchy&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="availability-structure">
+          <value value="&quot;incompetent hierarchy&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="access-structure">
+          <value value="&quot;incompetent hierarchy&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="buckpass?">
+          <value value="false"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="postpone?">
+          <value value="false"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="span-of-control">
+          <value value="2"></value>
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="Incompetent Hierarchy P" repetitions="1000" sequentialRunOrder="true" runMetricsEveryStep="false">
+      <setup>setup</setup>
+      <go>go</go>
+      <metrics>
+        <metric>num-oversights</metric>
+        <metric>num-resolutions</metric>
+        <metric>num-oversights-high</metric>
+        <metric>num-resolutions-high</metric>
+        <metric>num-oversights-low</metric>
+        <metric>num-resolutions-low</metric>
+        <metric>num-blocked-oversights</metric>
+        <metric>num-blocked-resolutions</metric>
+        <metric>ave-duration-blocked</metric>
+        <metric>num-postponements</metric>
+        <metric>ave-duration-postponed</metric>
+        <metric>num-buck-passings</metric>
+        <metric>ave-duration-passed</metric>
+      </metrics>
+      <constants>
+        <enumeratedValueSet variable="stop-at">
+          <value value="50000"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="show-details?">
+          <value value="false"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-participants">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-opportunities">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-solutions">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-problems">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="min-ability">
+          <value value="0"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="max-ability">
+          <value value="10"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="min-efficiency">
+          <value value="0"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="max-efficiency">
+          <value value="1"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="min-difficulty">
+          <value value="0"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="max-difficulty">
+          <value value="10"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="decision-structure">
+          <value value="&quot;incompetent hierarchy&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="availability-structure">
+          <value value="&quot;incompetent hierarchy&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="access-structure">
+          <value value="&quot;incompetent hierarchy&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="buckpass?">
+          <value value="false"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="postpone?">
+          <value value="true"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="span-of-control">
+          <value value="2"></value>
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="Incompetent Hierarchy BP" repetitions="1000" sequentialRunOrder="true" runMetricsEveryStep="false">
+      <setup>setup</setup>
+      <go>go</go>
+      <metrics>
+        <metric>num-oversights</metric>
+        <metric>num-resolutions</metric>
+        <metric>num-oversights-high</metric>
+        <metric>num-resolutions-high</metric>
+        <metric>num-oversights-low</metric>
+        <metric>num-resolutions-low</metric>
+        <metric>num-blocked-oversights</metric>
+        <metric>num-blocked-resolutions</metric>
+        <metric>ave-duration-blocked</metric>
+        <metric>num-postponements</metric>
+        <metric>ave-duration-postponed</metric>
+        <metric>num-buck-passings</metric>
+        <metric>ave-duration-passed</metric>
+      </metrics>
+      <constants>
+        <enumeratedValueSet variable="stop-at">
+          <value value="50000"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="show-details?">
+          <value value="false"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-participants">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-opportunities">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-solutions">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-problems">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="min-ability">
+          <value value="0"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="max-ability">
+          <value value="10"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="min-efficiency">
+          <value value="0"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="max-efficiency">
+          <value value="1"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="min-difficulty">
+          <value value="0"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="max-difficulty">
+          <value value="10"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="decision-structure">
+          <value value="&quot;incompetent hierarchy&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="availability-structure">
+          <value value="&quot;incompetent hierarchy&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="access-structure">
+          <value value="&quot;incompetent hierarchy&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="buckpass?">
+          <value value="true"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="postpone?">
+          <value value="false"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="span-of-control">
+          <value value="2"></value>
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+    <experiment name="Incompetent Hierarchy P+BP" repetitions="1000" sequentialRunOrder="true" runMetricsEveryStep="false">
+      <setup>setup</setup>
+      <go>go</go>
+      <metrics>
+        <metric>num-oversights</metric>
+        <metric>num-resolutions</metric>
+        <metric>num-oversights-high</metric>
+        <metric>num-resolutions-high</metric>
+        <metric>num-oversights-low</metric>
+        <metric>num-resolutions-low</metric>
+        <metric>num-blocked-oversights</metric>
+        <metric>num-blocked-resolutions</metric>
+        <metric>ave-duration-blocked</metric>
+        <metric>num-postponements</metric>
+        <metric>ave-duration-postponed</metric>
+        <metric>num-buck-passings</metric>
+        <metric>ave-duration-passed</metric>
+      </metrics>
+      <constants>
+        <enumeratedValueSet variable="stop-at">
+          <value value="50000"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="show-details?">
+          <value value="false"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-participants">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-opportunities">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-solutions">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="number-of-problems">
+          <value value="100"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="min-ability">
+          <value value="0"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="max-ability">
+          <value value="10"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="min-efficiency">
+          <value value="0"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="max-efficiency">
+          <value value="1"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="min-difficulty">
+          <value value="0"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="max-difficulty">
+          <value value="10"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="decision-structure">
+          <value value="&quot;incompetent hierarchy&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="availability-structure">
+          <value value="&quot;incompetent hierarchy&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="access-structure">
+          <value value="&quot;incompetent hierarchy&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="buckpass?">
+          <value value="true"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="postpone?">
+          <value value="true"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="span-of-control">
+          <value value="2"></value>
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+  </experiments>
+</model>
