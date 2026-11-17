@@ -1,32 +1,46 @@
-# gcm: the Garbage Can Model in Python, with a decision structure derived by language models
+# gcm: the Garbage Can Model in Python, with a decision structure written by language models
 
-Code and results for the bachelor's thesis *Simulation ausgewählter Bestandteile des
+Code and data for the bachelor's thesis *Simulation ausgewählter Bestandteile des
 Entscheidungsprozesses im Garbage-Can-Modell mit generativen KI-/LLM-Agenten* (Leon Adel,
 TH Köln, 2026).
 
-The repository contains three things:
+## What this repository does
 
-| Package | What it is | Reference |
-|---|---|---|
-| `gcm.fortran` | Python port of the FORTRAN program "version five" printed in the appendix of the original paper | Cohen, March & Olsen (1972) |
-| `gcm.netlogo` | Python port of Guido Fioretti's current NetLogo model (`GarbageCan_simplified17`, NetLogo 7.0.4) | Fioretti & Lomi (2008, 2010) |
-| `gcm.contextual` | The LLM component: a language model reads a description of an organization and decides who may take part in which choice opportunity. The result replaces exactly one rule-based part of the ports, the decision structure. | thesis, chapter 3.3 |
+The Garbage Can Model (GCM) simulates how decisions come about in an organization. One of its
+inputs is the *decision structure*: a table that says which participant may take part in which
+choice opportunity. In the published models this table is set by a rule.
 
-The simulations themselves never call a language model. They load a stored structure file, so
-every simulation result can be recomputed without an API key.
+The thesis lets a language model write this table from a text that describes the organization.
+It then asks three questions:
 
-The three research questions of the thesis map onto the code like this:
+- **FF1** Do the Python simulations reproduce the published models at all?
+- **FF2** Does the language model get the table right?
+- **FF3** What happens in the simulation when the table differs, and how robust is that?
 
-- **FF1** (do the two ports reproduce the published models?): `scripts/run_docking.py`,
-  `scripts/netlogo_original.py`
-- **FF2** (how faithfully does a language model turn a described structure into a matrix?):
-  `scripts/run_batch.py`, then `scripts/analyse_results.py`
-- **FF3** (what does the substituted structure do to the model's behaviour, and how robust is
-  that?): `scripts/analyse_results.py`, `scripts/run_netlogo_llm.py`
+The whole pipeline in one picture:
 
-## Setup
+```
+text describing an organization              src/gcm/contextual/scenarios/*.yaml
+      |   a language model is asked several times who may take part where
+      v
+raw answers                                  data/llm_runs/*.jsonl
+      |   share of "yes" per cell, threshold 0.5
+      v
+decision structure (a table of 0 and 1)      data/structures/*.json
+      |   replaces the rule-based table, everything else stays as published
+      v
+simulation                                   src/gcm/fortran  (Cohen, March & Olsen 1972)
+      |                                      src/gcm/netlogo  (Fioretti & Lomi, NetLogo model)
+      v
+tables and figures of chapter 4              data/analysis/
+```
 
-Requirements: [uv](https://docs.astral.sh/uv/) and nothing else. uv installs Python 3.11 and all
+The simulations never call a language model. They only load a stored table, so every
+simulation result can be computed again without an API key.
+
+## Install
+
+The only requirement is [uv](https://docs.astral.sh/uv/). It installs Python 3.11 and all
 dependencies into a local `.venv`.
 
 ```bash
@@ -36,29 +50,70 @@ uv sync --all-groups
 uv run pytest -q          # 191 tests, two to four minutes, no network and no API key needed
 ```
 
-All commands below are run from the repository root. On Windows they work unchanged in
-PowerShell.
+All commands in this file are run from the repository root. They work unchanged in PowerShell
+on Windows.
 
-## What can be reproduced, and what it needs
+## Two ways to use it
 
-| Level | What | Needs | Time |
-|---|---|---|---|
-| 1 | Tests, FORTRAN port, docking of the FORTRAN port against the 1972 paper, comparison of the initial requirement | nothing beyond the setup | seconds |
-| 2 | Docking of the NetLogo port (12 experiments, 30 seeds, 50,000 ticks) | CPU time | about two hours (7,415 s in the stored report) |
-| 3 | Every table and figure of chapter 4 from the stored LLM answers | the raw answers in `data/llm_runs/` | minutes |
-| 4 | Transfer check in the NetLogo port | 90 new model calls (API key), then CPU time | 100 runs of about 70 s each |
-| 5 | Comparison of the port with the original NetLogo model | a NetLogo 7.0.4 installation | 360 NetLogo runs |
-| 6 | Asking the language models again | API key for Gemini, or a local Ollama | see below |
+| | The notebook | The scripts |
+|---|---|---|
+| Good for | looking at the two models, trying settings, following the pipeline once by hand | producing the results of the thesis |
+| Start with | `uv run marimo run notebooks/gcm_notebook.py` | `uv run gcm-fortran`, then the section "Reproducing the thesis" |
+| API key | not needed, a built-in mock stands in for the language model | only needed to ask the language models again |
+| Run length | short runs by default, seconds to a few minutes | the full runs of the thesis, up to hours |
 
-Level 6 does not reproduce the thesis numbers exactly. The models answer at temperature 0.7,
-the hosted models can change on the provider's side, and a new call is a new sample. What is
-reproducible exactly is everything computed *from* the stored answers and structures (levels 1
-to 3). The structures used in the thesis are in `data/structures/`, each with a `provenance`
-block naming model, settings, seed and date.
+Both use the same code under `src/gcm` and the same folders under `data/`. The notebook is a
+front end for exploring. The runs of the thesis are defined in the scripts, so that each can be
+repeated with one command.
 
-## Step by step
+## The notebook
 
-### 1. The FORTRAN port and its docking (FF1)
+```bash
+uv run marimo run notebooks/gcm_notebook.py     # opens in the browser as an app with controls
+uv run marimo edit notebooks/gcm_notebook.py    # the same, with the code of every cell visible
+```
+
+[marimo](https://marimo.io) notebooks are plain Python files. Changing a control recomputes
+the cells that depend on it. Long computations wait for a button.
+
+| Section | What it shows | What to do |
+|---|---|---|
+| 1.1 The FORTRAN model, one situation | one of the 324 situations of the 1972 paper with its decision styles and summary statistics | choose load, structures and energy distribution in the dropdowns; the run takes milliseconds |
+| 1.2 Docking | the port's values next to the published tables | nothing, it is computed when the notebook opens |
+| 2.1 The agent-based model, one run | one run of the NetLogo port with the sliders of the original interface | press **Run the agent-based model** |
+| 2.2 BehaviorSpace experiments | the twelve experiments of the model, shortened | press **Run the 12 experiments** |
+| 3. Architecture | which part of each model can be replaced, and through which interface | read |
+| 4. Notes on fidelity | where the ports had to interpret the originals | read |
+| 5. A contextual decision structure | the LLM component step by step: the scenario as text (5.2), the exact prompt (5.3), asking the models (5.4), the resulting table and its distance to the expected one (5.5), the simulation with that table against the rule-based ones (5.6) | press **Ask the models**, then **Run the FORTRAN comparison** or **Run the NetLogo comparison**; **Save the selected structure** writes the table to `data/structures/` |
+
+Section 5 works without any setup: the connector `mock` answers from the expected table with a
+little noise, so the whole pipeline can be followed. Real models appear in the connector list
+once they are configured in `.env` (see "Configuration"). Answers are cached on disk, so
+pressing a button twice never repeats a call, and the notebook and the scripts share that
+cache.
+
+The notebook writes into the same `data/` folders as the scripts. To explore without touching
+the stored data, point it to another folder first: `GCM_DATA_DIR=scratch` (PowerShell:
+`$env:GCM_DATA_DIR = "scratch"`).
+
+## Reproducing the thesis
+
+Five scripts, in the order of the thesis. Steps 1 and 4 need nothing but this repository.
+
+| Step | Question | Script | Needs | Time |
+|---|---|---|---|---|
+| 1 | FF1: do the ports reproduce the published models? | `run_docking.py` | nothing | seconds; two hours with the NetLogo port |
+| 2 | FF1: port against the original NetLogo model | `netlogo_original.py` | NetLogo 7.0.4 | 360 NetLogo runs |
+| 3 | FF2: tables from language models | `run_batch.py` | API key or local Ollama | minutes to hours |
+| 4 | FF2, FF3: every table and figure of chapter 4 | `analyse_results.py` | nothing, uses the stored answers | minutes |
+| 5 | FF3: transfer to the NetLogo port | `run_netlogo_llm.py` | 90 model calls, then CPU time | 100 runs of about 70 s |
+
+A note on step 3: asking the models again does not give the numbers of the thesis exactly. The
+models answer at temperature 0.7, hosted models can change on the provider's side, and a new
+call is a new sample. This is why the raw answers of the thesis are stored in `data/llm_runs/`.
+Steps 1 and 4 start from stored data and give the same numbers every time.
+
+### Step 1: docking of the ports (FF1)
 
 ```bash
 uv run gcm-fortran
@@ -88,12 +143,12 @@ text, against 0 and 1.0; appendix of the thesis):
 uv run python scripts/run_docking.py --reference data/reference/GCM_Referenzdaten_CMO1972_Fioretti2008.xlsx --skip-netlogo --initial-requirement 1.1 0 1.0 --out data/docking_initial_requirement
 ```
 
-### 2. The original NetLogo model against the port (FF1)
+### Step 2: the original NetLogo model against the port (FF1)
 
-Needs NetLogo 7.0.4. `data/netlogo_original/GarbageCan_fioretti.nlogox` is the model file the
-port follows. `GarbageCan_simplified17_headless.nlogox` is a copy with the same
-model code whose BehaviorSpace experiments are set to 30 repetitions and to the same 13
-reported quantities for every experiment.
+`data/netlogo_original/GarbageCan_fioretti.nlogox` is the model file the port follows.
+`GarbageCan_simplified17_headless.nlogox` is a copy with the same model code whose
+BehaviorSpace experiments are set to 30 repetitions and to the same 13 reported quantities for
+every experiment.
 
 ```bash
 uv run python scripts/netlogo_original.py prepare --model data/netlogo_original/GarbageCan_fioretti.nlogox
@@ -101,21 +156,24 @@ NETLOGO=/path/to/NetLogo_Console ./data/netlogo_original/run_original.sh     # W
 uv run python scripts/netlogo_original.py compare
 ```
 
-Result: `data/netlogo_original/report.md`. BehaviorSpace sets no seeds, so the comparison is
+The first two commands need NetLogo 7.0.4. The tables NetLogo wrote for the thesis are stored
+in `data/netlogo_original/tables/`, so `compare` can be run on its own. Result:
+`data/netlogo_original/report.md`. BehaviorSpace sets no seeds, so the comparison is
 between distributions, not between individual runs.
 
-### 3. Structures from language models (FF2)
+### Step 3: tables from language models (FF2)
 
-Configure the models in `.env` (copy `.env.example`). `--dry-run` prints the plan and how many
-calls are already answered, without calling a model:
+Copy `.env.example` to `.env` and enter the key or the local model. `--dry-run` prints the plan
+and how many calls are already answered, without calling a model:
 
 ```bash
 uv run python scripts/run_batch.py --connector gemini/gemini-3.5-flash-lite --mode per_row --university --dry-run
 ```
 
-The runs of the thesis, all with `--mode per_row` (one call per participant, ten per loop):
+The runs of the thesis. Every line starts with
+`uv run python scripts/run_batch.py --mode per_row` (one call per participant, ten per loop):
 
-| Model and setting | Command (after `uv run python scripts/run_batch.py --mode per_row`) | Calls |
+| Model and setting | Rest of the command | Calls |
 |---|---|---|
 | Main model gemini-3.5-flash-lite, thinking level `minimal` | `--connector gemini/gemini-3.5-flash-lite --university` | 720 |
 | same, university scenario without the participation statement | `--connector gemini/gemini-3.5-flash-lite --stages university_np` | 150 |
@@ -126,31 +184,35 @@ The runs of the thesis, all with `--mode per_row` (one call per participant, ten
 | same, audit | `--connector ollama/qwen3:4b --stages audit` | 360 |
 | same, three audit factors with five loops for the hierarchical form | `--connector ollama/qwen3:4b --stages audit --scenarios reference_hierarchical --audit wording=b item_order=shuffled perspective=persona --side-loops 5` | 90 more |
 
-A supplementary run of qwen3:8b (hierarchical reference scenario, 500 calls) used the pairwise
-mode from the notebook. The main-model runs used `GEMINI_THINKING_LEVEL=minimal` and the qwen
-runs `OLLAMA_THINK=false` in `.env`.
+The stages: `core` asks about the three reference scenarios five times at temperature 0.7,
+`det` twice at temperature 0, `audit` changes one prompt factor at a time, `university` asks
+about the three variants of the university scenario. The main-model runs used
+`GEMINI_THINKING_LEVEL=minimal` and the qwen runs `OLLAMA_THINK=false` in `.env`. A
+supplementary run of qwen3:8b (hierarchical reference scenario, 500 calls) used the pairwise
+mode, which asks about every pair of participant and opportunity separately.
 
-Every answer is written to the disk cache at once (`data/llm_cache/`), so a run can be stopped
-and restarted and nothing is asked twice. Output: raw answers in `data/llm_runs/*.jsonl`, one
-structure per configuration in `data/structures/batch/`, one summary row per configuration in
-`data/batch/summary__<connector>.csv`. `uv run python scripts/run_batch.py --help` documents all
-stages and flags.
+A run can be stopped and restarted at any time; answered calls are never asked again. Output:
+raw answers in `data/llm_runs/*.jsonl`, one table per configuration in
+`data/structures/batch/`, one summary row per configuration in
+`data/batch/summary__<connector>.csv`. `uv run python scripts/run_batch.py --help` describes
+all stages and flags.
 
-To try the pipeline without any model: `uv run python scripts/run_batch.py --connector mock`.
+To try the script without any model: `uv run python scripts/run_batch.py --connector mock`.
 
-### 4. Analysis of chapter 4 (FF2 and FF3)
+### Step 4: the analysis of chapter 4 (FF2 and FF3)
 
 ```bash
-uv run python scripts/analyse_results.py                      # everything, null model with 200 draws
-uv run python scripts/analyse_results.py --null 0             # without the null model (fast)
+uv run python scripts/analyse_results.py --null 0             # everything except the null model (fast)
+uv run python scripts/analyse_results.py                      # with the null model, 200 draws
 uv run python scripts/analyse_results.py --arithmetic ibm360  # all FORTRAN comparisons with the second arithmetic
 ```
 
-Reads `data/llm_runs/`, `data/docking/` and `data/netlogo_llm/` and writes tables, figures and
-`report.md` to `data/analysis/` (to `data/analysis__ibm360/` for the second arithmetic, with
-`arithmetic_comparison.md` setting the two side by side).
+Reads the stored answers in `data/llm_runs/` and the stored runs of the NetLogo port, runs
+every table through the FORTRAN port over the 108 situations, and writes tables, figures and
+`report.md` to `data/analysis/`. With `--arithmetic ibm360` the output goes to
+`data/analysis__ibm360/`, and `arithmetic_comparison.md` sets the two side by side.
 
-### 5. Transfer check in the NetLogo port (FF3)
+### Step 5: transfer check in the NetLogo port (FF3)
 
 ```bash
 uv run python scripts/run_netlogo_llm.py llm --connector gemini/gemini-3.5-flash-lite
@@ -160,19 +222,13 @@ uv run python scripts/run_netlogo_llm.py sim --connector gemini/gemini-3.5-flash
 
 The `llm` step asks about the role scenario (90 calls) and stores the answers in the local
 cache. The `sim` step needs these answers and a configured connector name, but makes no model
-call. The cache of the thesis run is not part of the repository. Its three structures are in
-`data/structures/roles/` and its simulation runs in `data/netlogo_llm/runs_*.csv`.
-Result: `data/netlogo_llm/report_ranked_50000t_10s.md` and, with the control conditions,
-`report_ranked_50000t_10s_controls.md`.
+call. The cache of the thesis run is not part of the repository. Its three tables are in
+`data/structures/roles/`, its simulation runs in `data/netlogo_llm/runs_*.csv`, and its reports
+in `data/netlogo_llm/report_ranked_50000t_10s*.md`.
 
 ## Where the results of the thesis are
 
 These files are part of the repository and can be read without running anything.
-
-The repository stores only what cannot be produced again cheaply: the raw answers of the
-language models (`data/llm_runs/`), the structures derived from them, the runs of the NetLogo
-port and of the original NetLogo model, and the reports. All other tables are written again by
-the scripts within minutes and are therefore not tracked.
 
 | Thesis | File | Written by |
 |---|---|---|
@@ -187,13 +243,35 @@ the scripts within minutes and are therefore not tracked.
 | Scenario texts (appendix B) | `src/gcm/contextual/scenarios/*.yaml` | |
 | Prompt templates (appendix B) | `src/gcm/contextual/prompts.py` | |
 | Published values used as docking targets | `data/reference/GCM_Referenzdaten_CMO1972_Fioretti2008.xlsx` | |
-| The decision structures used in the simulations | `data/structures/batch/`, `data/structures/roles/` | `run_batch.py`, `run_netlogo_llm.py` |
+| The tables used in the simulations | `data/structures/batch/`, `data/structures/roles/` | `run_batch.py`, `run_netlogo_llm.py` |
 
 The reports use the German terms of the thesis in their headings. The code and its
 documentation are in English. The reports also contain statistics that the thesis does not
 report (pooled chi-square tests, Cramér's V, Cohen's d).
 
-## Layout
+**What is stored and what is not.** The repository keeps only what cannot be produced again
+cheaply: the raw answers of the language models, the tables derived from them, the long runs of
+the NetLogo port and of the original NetLogo model, and the reports. All other tables are
+written again by the scripts within minutes and are not tracked.
+
+## Configuration
+
+Language models are configured through environment variables or a git-ignored `.env` file
+(template: `.env.example`).
+
+| Connector | Variables | Used as |
+|---|---|---|
+| Google Gemini | `GEMINI_API_KEY`, `GEMINI_MODEL`, `GEMINI_THINKING_LEVEL`, `GEMINI_RPM` | `--connector gemini/<model>` |
+| Local Ollama | `OLLAMA_URL`, `OLLAMA_MODEL`, `OLLAMA_THINK` | `--connector ollama/<model>` |
+| Any OpenAI-compatible endpoint | `UNI_API_BASE_URL`, `UNI_API_KEY`, `UNI_API_MODEL` | `--connector uni/<model>` |
+| Mock, no model | none | `--connector mock` |
+
+Model, thinking setting, temperature, seed and the full prompt are part of every cache key, so
+answers obtained with different settings are never mixed.
+
+## Reference
+
+### Layout
 
 ```
 src/gcm/
@@ -220,7 +298,7 @@ src/gcm/
     rules.py         resolution inequality, most-difficult-to-latest-arrival flights
     model.py         setup / go: decision-making, flights, movement, monitor
     experiments.py   BehaviorSpace-style runs (multiprocess), sweeps
-  contextual/
+  contextual/        the LLM component
     scenario.py      scenarios as YAML data files (ordered participants and opportunities, variants)
     scenarios/       reference scenarios (the three structures in plain language), the
                      university scenario (10 x 10) and the role scenario (6 x 5)
@@ -238,18 +316,15 @@ src/gcm/
     metrics.py       per-level metrics for both ports (styles, latencies, resolution rates)
     compare.py       baselines and LLM structures over identical situations or seeds: paired
                      differences, bootstrap intervals and tests
-scripts/             the five scripts described above, plus check_ollama.py (speed check of a
-                     local model)
-notebooks/gcm_notebook.py   marimo notebook: run, inspect, dock, architecture, LLM component
+scripts/             the five scripts of "Reproducing the thesis", plus check_ollama.py
+                     (speed check of a local model)
+notebooks/gcm_notebook.py   the marimo notebook
 tests/               matrices against the printed arrays, Table 5 rows, docking tolerances,
                      mechanics, and the LLM pipeline end to end with the Mock connector
-data/                reference values, stored structures and the reports listed above
+data/                reference values, stored answers and tables, and the reports listed above
 ```
 
-The notebook is optional: `uv run marimo edit notebooks/gcm_notebook.py` opens it for editing,
-`uv run marimo run notebooks/gcm_notebook.py` serves it read-only.
-
-## How the LLM component works
+### How the LLM component works
 
 1. A scenario (`src/gcm/contextual/scenarios/*.yaml`) is rendered as text in one of three
    formats.
@@ -269,15 +344,7 @@ The notebook is optional: `uv run marimo edit notebooks/gcm_notebook.py` opens i
 Prompts never mention the garbage can model, the organization type of the 1972 paper or the
 names of the structures.
 
-## Configuration
-
-Connectors read environment variables or a git-ignored `.env` (see `.env.example`):
-`OLLAMA_URL`, `OLLAMA_MODEL`, `OLLAMA_THINK`; `GEMINI_API_KEY`, `GEMINI_MODEL`,
-`GEMINI_THINKING_LEVEL`, `GEMINI_RPM`; `UNI_API_BASE_URL`, `UNI_API_KEY`, `UNI_API_MODEL` for any
-OpenAI-compatible endpoint. Model, thinking setting, temperature, seed and the full prompt are
-part of every cache key, so answers obtained with different settings are never mixed.
-
-## Extension points
+### Extension points
 
 Both ports keep every behavioural assumption in a small, swappable component with a rule-based
 default. A substitute is any object with the listed methods and a `name`, handed to the model
@@ -294,7 +361,7 @@ via `FortranComponents` or `NetLogoComponents`.
 | Decision rule | `ChoiceRule.is_made(choice, state)` | `ResolutionRule.resolves(here, model)` |
 | Flights | emergent | `FlightSelector.postponement(...)` / `.buck_passing(...)` |
 
-## Fidelity notes
+### Fidelity notes
 
 **FORTRAN.** The original source text is reproduced block by block; the statement numbers of
 the original are cited in the code. The program does not compute decision styles. They are
