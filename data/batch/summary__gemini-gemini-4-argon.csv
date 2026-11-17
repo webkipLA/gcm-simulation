@@ -1,0 +1,7 @@
+stage,connector,model_ids,scenario,expected,representation,wording,perspective,item_order,language,mode,with_reason,show_importance,loops,temperature,seed,calls,new_calls,errors,invalid_share,mean_latency_s,cells_undetermined,allowed_cells,dist_unsegmented,dist_hierarchical,dist_specialized,kappa_expected,template_hash,config_hash
+core,gemini/gemini-4-argon,gemini-4-argon,reference_hierarchical,hierarchical,prose,a,observer,canonical,en,per_row,True,False,5,0.7,0,50,40,0,0.0,13.15,0,55,0.45,0.0,0.45,1.0,f45517617f43,912e55aa6c6e
+core,gemini/gemini-4-argon,gemini-4-argon,reference_specialized,specialized,prose,a,observer,canonical,en,per_row,True,False,5,0.7,0,50,40,0,0.0,14.316,0,10,0.9,0.45,0.0,1.0,f45517617f43,6b08e9f8e72f
+core,gemini/gemini-4-argon,gemini-4-argon,reference_unsegmented,unsegmented,prose,a,observer,canonical,en,per_row,True,False,5,0.7,0,50,40,0,0.0,12.709,0,100,0.0,0.45,0.9,,f45517617f43,36acf375c591
+university,gemini/gemini-4-argon,gemini-4-argon,university_strong_power,hierarchical,prose,a,observer,canonical,en,per_row,True,False,5,0.7,0,50,50,0,0.0,14.223,0,69,0.31,0.22,0.65,0.543,f45517617f43,bdcfbaebb828
+university,gemini/gemini-4-argon,gemini-4-argon,university_moderate_power,specialized,prose,a,observer,canonical,en,per_row,True,False,5,0.7,0,50,50,0,0.0,14.318,0,11,0.89,0.52,0.11,0.415,f45517617f43,eb6e624205f0
+university,gemini/gemini-4-argon,gemini-4-argon,university_weak_power,unsegmented,prose,a,observer,canonical,en,per_row,True,False,5,0.7,0,50,50,0,0.0,13.983,0,100,0.0,0.45,0.9,,f45517617f43,81a300023a14

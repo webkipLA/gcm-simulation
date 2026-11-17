@@ -247,8 +247,7 @@ variants:
           die erscheinen.
   # The three variants again without their statement on who takes part in which body (the third
   # statement of each). Everything else is taken over unchanged from the variant named in
-  # `derived_from`. The omitted sentences and the borderline sentences that were kept are listed
-  # in docs/university_no_participation_diff.md.
+  # `derived_from`.
   - id: strong_power_no_participation
     derived_from: strong_power
     omit_statements: [3]

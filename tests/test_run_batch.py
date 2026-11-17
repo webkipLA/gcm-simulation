@@ -271,15 +271,6 @@ def test_no_participation_variants_differ_by_the_removed_statement_only(scenario
             assert all(s[language] in text for s in cut.statements)
 
 
-def test_review_document_lists_every_removed_statement(scenarios):
-    text = (ROOT / "docs" / "university_no_participation_diff.md").read_text(encoding="utf-8")
-    for variant in VARIANTS:
-        removed = scenarios[f"university_{variant}"].statements[2]
-        assert f"## university_{variant}" in text
-        assert removed["en"] in text and removed["de"] in text
-    assert text.count("### Unclear (kept)") == 3
-
-
 def test_derived_variants_are_validated(tmp_path, scenarios):
     import yaml
 

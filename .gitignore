@@ -19,12 +19,17 @@ __marimo__/
 results/
 *.csv
 !tests/fixtures/*.csv
+# tracked all the same: runs that take hours or need NetLogo to produce again.
+# Every other table is written again by the scripts within minutes.
+!data/docking/netlogo_runs.csv
+!data/netlogo_llm/runs_*.csv
+!data/netlogo_original/tables/*.csv
 
-# contextual structures: secrets, raw LLM responses and the request cache stay local;
-# exported structures under data/structures/ are tracked
+# secrets and the request cache stay local. The raw LLM answers (data/llm_runs/) and the
+# exported structures (data/structures/) are tracked: they are the primary data of chapter 4
+# and cannot be produced again identically. They hold prompts and answers, no keys.
 .env
 data/llm_cache/
-data/llm_runs/
 
 # literature: PDFs stay local (copyright); only literature/sources.yaml is tracked
 literature/pdf/

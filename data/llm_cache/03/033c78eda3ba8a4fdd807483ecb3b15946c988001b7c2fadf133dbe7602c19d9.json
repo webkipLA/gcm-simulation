@@ -1,0 +1,1 @@
+{"timestamp": "2026-10-22T13:39:20+00:00", "completion": {"text": "{\"reason\": \"Mock answer from the target matrix.\", \"eligible\": false}", "parsed": {"reason": "Mock answer from the target matrix.", "eligible": false}, "model_id": "mock(noise=0.1)", "latency_s": 3.3100019209086895e-05, "usage": null, "error": null, "attempts": 1}}

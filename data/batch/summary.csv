@@ -1,0 +1,2 @@
+stage,connector,model_ids,scenario,expected,representation,wording,perspective,item_order,language,mode,with_reason,show_importance,loops,temperature,seed,calls,new_calls,errors,invalid_share,mean_latency_s,cells_undetermined,allowed_cells,dist_unsegmented,dist_hierarchical,dist_specialized,kappa_expected,template_hash,config_hash
+core,ollama/qwen3:8b,qwen3:8b,reference_hierarchical,hierarchical,prose,a,observer,canonical,en,pairwise,True,False,5,0.7,0,500,306,24,0.048,138.911,0,55,0.45,0.0,0.45,1.0,5b16cf66635e,cea554d5c617

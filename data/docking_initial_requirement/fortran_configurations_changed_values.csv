@@ -1,0 +1,55 @@
+id,fundstelle,publiziert,port exact,port exact__xerc0,port exact__xerc1.0,status exact,status exact__xerc0,status exact__xerc1.0
+CMO_T1_leicht_alle,"Tab. 1, S. 9",0.55,0.5269,0.5523,0.5337,innerhalb Toleranz,identisch im Rahmen der Rundung,innerhalb Toleranz
+CMO_T1_mittel_alle,"Tab. 1, S. 9",0.3,0.3233,0.4433,0.4368,innerhalb Toleranz,Abweichung,Abweichung
+CMO_T1_mittel_unsegmentiert,"Tab. 1, S. 9",0.04,0.0556,0.4107,0.4048,innerhalb Toleranz,Abweichung,Abweichung
+CMO_T1_schwer_alle,"Tab. 1, S. 9",0.36,0.3834,0.2431,0.386,innerhalb Toleranz,Abweichung,innerhalb Toleranz
+CMO_T1_schwer_unsegmentiert,"Tab. 1, S. 9",0.35,0.375,0.0,0.381,innerhalb Toleranz,Abweichung,Abweichung
+CMO_T1_alle_alle,"Tab. 1, S. 9",0.4,0.414,0.4193,0.4549,innerhalb Toleranz,innerhalb Toleranz,Abweichung
+CMO_T2_leicht_problemaktivitaet_KT,"Tab. 2, S. 10",114.9,114.3426,108.5741,111.8889,innerhalb Toleranz,Abweichung,innerhalb Toleranz
+CMO_T2_leicht_aktivitaet_entscheidungstraeger_KX,"Tab. 2, S. 10",60.9,61.0463,62.0093,61.1944,identisch im Rahmen der Rundung,innerhalb Toleranz,identisch im Rahmen der Rundung
+CMO_T2_leicht_entscheidungsschwierigkeit_KY,"Tab. 2, S. 10",19.5,19.537,18.3241,19.1574,identisch im Rahmen der Rundung,Abweichung,identisch im Rahmen der Rundung
+CMO_T2_leicht_anteil_flight_oversight,"Tab. 2, S. 10",0.45,0.4731,0.4477,0.4663,innerhalb Toleranz,identisch im Rahmen der Rundung,innerhalb Toleranz
+CMO_T2_mittel_problemaktivitaet_KT,"Tab. 2, S. 10",204.3,200.2222,191.3611,191.3519,innerhalb Toleranz,Abweichung,Abweichung
+CMO_T2_mittel_aktivitaet_entscheidungstraeger_KX,"Tab. 2, S. 10",63.8,66.0463,78.2222,78.1111,innerhalb Toleranz,Abweichung,Abweichung
+CMO_T2_mittel_entscheidungsschwierigkeit_KY,"Tab. 2, S. 10",32.9,34.1389,42.5926,42.6019,innerhalb Toleranz,Abweichung,Abweichung
+CMO_T2_mittel_anteil_flight_oversight,"Tab. 2, S. 10",0.7,0.6767,0.5567,0.5632,innerhalb Toleranz,Abweichung,Abweichung
+CMO_T2_schwer_problemaktivitaet_KT,"Tab. 2, S. 10",211.1,208.8333,224.2037,208.2037,innerhalb Toleranz,Abweichung,innerhalb Toleranz
+CMO_T2_schwer_aktivitaet_entscheidungstraeger_KX,"Tab. 2, S. 10",76.6,76.9074,65.7222,76.8704,identisch im Rahmen der Rundung,Abweichung,identisch im Rahmen der Rundung
+CMO_T2_schwer_entscheidungsschwierigkeit_KY,"Tab. 2, S. 10",46.1,46.0926,36.4815,46.0926,identisch im Rahmen der Rundung,Abweichung,identisch im Rahmen der Rundung
+CMO_T2_schwer_anteil_flight_oversight,"Tab. 2, S. 10",0.64,0.6166,0.7569,0.614,innerhalb Toleranz,Abweichung,innerhalb Toleranz
+CMO_T3_hoch_frueh,"Tab. 3, S. 10",0.46,0.5222,0.4815,0.5167,Abweichung,innerhalb Toleranz,Abweichung
+CMO_T3_niedrig_frueh,"Tab. 3, S. 10",0.48,0.4981,0.4778,0.5,innerhalb Toleranz,identisch im Rahmen der Rundung,innerhalb Toleranz
+CMO_T3_niedrig_spaet,"Tab. 3, S. 10",0.25,0.2685,0.25,0.2556,innerhalb Toleranz,identisch im Rahmen der Rundung,innerhalb Toleranz
+CMO_T4_hoch_frueh,"Tab. 4, S. 11",0.86,0.8622,0.8081,0.8538,identisch im Rahmen der Rundung,Abweichung,innerhalb Toleranz
+CMO_T4_hoch_spaet,"Tab. 4, S. 11",0.65,0.6418,0.6452,0.6498,innerhalb Toleranz,identisch im Rahmen der Rundung,identisch im Rahmen der Rundung
+CMO_Wahlausfall_oberste_3,"Text, S. 11",0.14,0.1352,0.15,0.1352,identisch im Rahmen der Rundung,innerhalb Toleranz,identisch im Rahmen der Rundung
+CMO_Wahlausfall_mittlere_4,"Text, S. 11",0.05,0.0528,0.0403,0.0514,identisch im Rahmen der Rundung,innerhalb Toleranz,identisch im Rahmen der Rundung
+CMO_Wahlausfall_unterste_3,"Text, S. 11",0.12,0.1148,0.1222,0.1167,innerhalb Toleranz,identisch im Rahmen der Rundung,identisch im Rahmen der Rundung
+CMO_T5_1110_anteil_resolution,"Tab. 5, S. 17",0.21,0.2105,0.3056,0.2432,identisch im Rahmen der Rundung,Abweichung,Abweichung
+CMO_T5_1110_problemaktivitaet_KT,"Tab. 5, S. 17",210.0,208.25,197.75,204.0,innerhalb Toleranz,Abweichung,innerhalb Toleranz
+CMO_T5_1110_problemlatenz_KU,"Tab. 5, S. 17",23.0,22.25,33.5,30.0,innerhalb Toleranz,Abweichung,Abweichung
+CMO_T5_1110_aktivitaet_entscheidungstraeger_KX,"Tab. 5, S. 17",58.0,57.5,64.5,58.75,identisch im Rahmen der Rundung,Abweichung,innerhalb Toleranz
+CMO_T5_1110_entscheidungszeit_KY,"Tab. 5, S. 17",34.0,33.75,35.25,31.25,identisch im Rahmen der Rundung,innerhalb Toleranz,Abweichung
+CMO_T5_0111_anteil_resolution,"Tab. 5, S. 17",0.65,0.65,0.625,0.65,identisch im Rahmen der Rundung,innerhalb Toleranz,identisch im Rahmen der Rundung
+CMO_T5_0111_problemaktivitaet_KT,"Tab. 5, S. 17",57.0,57.0,60.75,57.0,identisch im Rahmen der Rundung,Abweichung,identisch im Rahmen der Rundung
+CMO_T5_0111_problemlatenz_KU,"Tab. 5, S. 17",60.0,59.5,58.0,59.5,identisch im Rahmen der Rundung,innerhalb Toleranz,identisch im Rahmen der Rundung
+CMO_T5_0111_aktivitaet_entscheidungstraeger_KX,"Tab. 5, S. 17",66.0,65.5,70.5,64.5,identisch im Rahmen der Rundung,Abweichung,innerhalb Toleranz
+CMO_T5_0111_entscheidungszeit_KY,"Tab. 5, S. 17",14.0,13.75,15.25,14.0,identisch im Rahmen der Rundung,innerhalb Toleranz,identisch im Rahmen der Rundung
+CMO_T5_1112_problemaktivitaet_KT,"Tab. 5, S. 17",210.0,182.75,170.25,200.75,Abweichung,Abweichung,innerhalb Toleranz
+CMO_T5_1112_aktivitaet_entscheidungstraeger_KX,"Tab. 5, S. 17",66.0,74.25,65.75,68.75,Abweichung,identisch im Rahmen der Rundung,innerhalb Toleranz
+CMO_T5_1112_entscheidungszeit_KY,"Tab. 5, S. 17",31.0,35.5,29.5,32.25,Abweichung,innerhalb Toleranz,innerhalb Toleranz
+CMO_T5_2112_anteil_resolution,"Tab. 5, S. 17",0.24,0.2353,0.1515,0.2424,identisch im Rahmen der Rundung,Abweichung,identisch im Rahmen der Rundung
+CMO_T5_2112_problemaktivitaet_KT,"Tab. 5, S. 17",248.0,246.5,267.5,246.5,innerhalb Toleranz,Abweichung,innerhalb Toleranz
+CMO_T5_2112_problemlatenz_KU,"Tab. 5, S. 17",32.0,31.25,19.5,31.25,innerhalb Toleranz,Abweichung,innerhalb Toleranz
+CMO_T5_2112_aktivitaet_entscheidungstraeger_KX,"Tab. 5, S. 17",55.0,54.75,59.5,53.5,identisch im Rahmen der Rundung,Abweichung,innerhalb Toleranz
+CMO_T5_2112_entscheidungszeit_KY,"Tab. 5, S. 17",38.0,37.75,39.0,37.75,identisch im Rahmen der Rundung,innerhalb Toleranz,identisch im Rahmen der Rundung
+CMO_T5_1111_anteil_resolution,"Tab. 5, S. 17",0.31,0.35,0.3158,0.35,Abweichung,innerhalb Toleranz,Abweichung
+CMO_T5_1111_problemaktivitaet_KT,"Tab. 5, S. 17",200.0,184.75,206.75,184.75,Abweichung,innerhalb Toleranz,Abweichung
+CMO_T5_1111_aktivitaet_entscheidungstraeger_KX,"Tab. 5, S. 17",58.0,65.5,60.5,65.5,Abweichung,innerhalb Toleranz,Abweichung
+CMO_T5_1111_entscheidungszeit_KY,"Tab. 5, S. 17",28.0,27.5,29.25,27.5,identisch im Rahmen der Rundung,innerhalb Toleranz,identisch im Rahmen der Rundung
+CMO_T5_2211_aktivitaet_entscheidungstraeger_KX,"Tab. 5, S. 17",73.0,72.5,75.25,72.5,identisch im Rahmen der Rundung,innerhalb Toleranz,identisch im Rahmen der Rundung
+CMO_T5_1211_problemaktivitaet_KT,"Tab. 5, S. 17",78.0,78.5,82.75,78.5,identisch im Rahmen der Rundung,Abweichung,identisch im Rahmen der Rundung
+CMO_T5_1211_aktivitaet_entscheidungstraeger_KX,"Tab. 5, S. 17",76.0,76.5,77.75,76.5,identisch im Rahmen der Rundung,innerhalb Toleranz,identisch im Rahmen der Rundung
+CMO_T5_1211_entscheidungszeit_KY,"Tab. 5, S. 17",39.0,39.75,42.0,39.75,innerhalb Toleranz,Abweichung,innerhalb Toleranz
+CMO_Text_mittel_nicht_getroffen,"Text, S. 9",1.0,1.0463,1.0556,1.0093,identisch im Rahmen der Rundung,Abweichung,identisch im Rahmen der Rundung
+CMO_Text_mittel_ungeloest,"Text, S. 9",12.3,12.0093,12.1852,11.4136,identisch im Rahmen der Rundung,identisch im Rahmen der Rundung,Abweichung

@@ -15,7 +15,7 @@ Further stages that run only when they are named in --stages:
                     temperature 0.7, 2 loops (--side-loops); respects --audit
   university_np     the 3 university variants without their statement on who takes part in which
                     body (scenarios university_*_no_participation), main configuration, 5 loops
-                    (--core-loops); see docs/university_no_participation_diff.md
+                    (--core-loops)
 
 Main configuration = the notebook presets: prose, wording a, observer, canonical order, English,
 pairwise, reason on, importance off, seed 0.
